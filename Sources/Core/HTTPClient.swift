@@ -56,6 +56,11 @@ public actor HTTPClient: Sendable {
 
             logger?.log("Response status: \(httpResponse.statusCode)")
 
+            // Log response body for debugging
+            if let responseString = String(data: data, encoding: .utf8) {
+                logger?.log("Response body: \(responseString)")
+            }
+
             let httpResponseObj = HTTPResponse(
                 data: data,
                 response: httpResponse
@@ -64,6 +69,7 @@ public actor HTTPClient: Sendable {
             // Check for errors
             if !(200..<300).contains(httpResponse.statusCode) {
                 let error = try? JSONDecoder().decode(ErrorResponse.self, from: data)
+                logger?.error("HTTP Error: status=\(httpResponse.statusCode), message=\(error?.message ?? "Request failed")")
                 throw InsForgeError.httpError(
                     statusCode: httpResponse.statusCode,
                     message: error?.message ?? "Request failed",
@@ -148,8 +154,24 @@ public struct HTTPResponse: Sendable {
         response.statusCode
     }
 
-    public func decode<T: Decodable>(_ type: T.Type, decoder: JSONDecoder = .init()) throws -> T {
-        try decoder.decode(type, from: data)
+    public func decode<T: Decodable>(_ type: T.Type, decoder: JSONDecoder? = nil) throws -> T {
+        let jsonDecoder = decoder ?? {
+            let d = JSONDecoder()
+            d.dateDecodingStrategy = iso8601WithFractionalSecondsDecodingStrategy()
+            return d
+        }()
+
+        do {
+            return try jsonDecoder.decode(type, from: data)
+        } catch {
+            // Log detailed decoding error
+            print("[InsForge Decode Error] Failed to decode \(T.self)")
+            print("[InsForge Decode Error] Error: \(error)")
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("[InsForge Decode Error] Response data: \(responseString)")
+            }
+            throw error
+        }
     }
 }
 

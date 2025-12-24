@@ -20,9 +20,9 @@ public final class InsForgeClient: Sendable {
     /// API key for authentication
     public let apiKey: String
 
-    /// Headers shared across all requests
-    private let _headers: [String: String]
-    public var headers: [String: String] { _headers }
+    /// Headers shared across all requests (thread-safe, dynamically updated)
+    private let _headers: LockIsolated<[String: String]>
+
 
     // MARK: - Sub-clients
 
@@ -55,20 +55,40 @@ public final class InsForgeClient: Sendable {
         self.apiKey = apiKey
         self.options = options
 
-        // Build shared headers
+        // Build shared headers with API key as default Authorization
         var headers = options.global.headers
         headers["apikey"] = apiKey
         headers["Authorization"] = "Bearer \(apiKey)"
         headers["X-Client-Info"] = "insforge-swift/\(InsForgeClient.version)"
-        self._headers = headers
+        self._headers = LockIsolated(headers)
 
-        // Initialize auth client
+        // Initialize auth client (auth always uses API key for auth endpoints)
         self._auth = AuthClient(
             url: insForgeURL.appendingPathComponent("api/auth"),
             headers: headers,
             options: options.auth,
             logger: options.global.logger
         )
+
+        // Set up auth state change listener to automatically update headers
+        Task {
+            await _auth.setAuthStateChangeListener { [weak self] session in
+                guard let self = self else { return }
+                if let session = session {
+                    // User signed in - update to user token
+                    self._headers.withValue { headers in
+                        headers["Authorization"] = "Bearer \(session.accessToken)"
+                    }
+                    options.global.logger?.log("Auth headers updated with user token")
+                } else {
+                    // User signed out - reset to API key
+                    self._headers.withValue { headers in
+                        headers["Authorization"] = "Bearer \(self.apiKey)"
+                    }
+                    options.global.logger?.log("Auth headers reset to API key")
+                }
+            }
+        }
     }
 
     // MARK: - Database
@@ -78,7 +98,7 @@ public final class InsForgeClient: Sendable {
             if state.database == nil {
                 state.database = DatabaseClient(
                     url: insForgeURL.appendingPathComponent("api/database"),
-                    headers: headers,
+                    headers: _headers.value,
                     options: options.database,
                     logger: options.global.logger
                 )
@@ -94,7 +114,7 @@ public final class InsForgeClient: Sendable {
             if state.storage == nil {
                 state.storage = StorageClient(
                     url: insForgeURL.appendingPathComponent("api/storage"),
-                    headers: headers,
+                    headers: _headers.value,
                     logger: options.global.logger
                 )
             }
@@ -109,7 +129,7 @@ public final class InsForgeClient: Sendable {
             if state.functions == nil {
                 state.functions = FunctionsClient(
                     url: insForgeURL.appendingPathComponent("functions"),
-                    headers: headers,
+                    headers: _headers.value,
                     logger: options.global.logger
                 )
             }
@@ -124,7 +144,7 @@ public final class InsForgeClient: Sendable {
             if state.ai == nil {
                 state.ai = AIClient(
                     url: insForgeURL.appendingPathComponent("api/ai"),
-                    headers: headers,
+                    headers: _headers.value,
                     logger: options.global.logger
                 )
             }
@@ -148,7 +168,7 @@ public final class InsForgeClient: Sendable {
                 state.realtime = RealtimeClient(
                     url: wsURL.appendingPathComponent("api/realtime"),
                     apiKey: apiKey,
-                    headers: headers,
+                    headers: _headers.value,
                     logger: options.global.logger
                 )
             }

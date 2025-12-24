@@ -1,6 +1,29 @@
 import Foundation
 import InsForgeCore
 
+/// Auth flow type for OAuth
+public enum AuthFlowType: String, Sendable {
+    case implicit
+    case pkce
+}
+
+/// Authentication client options
+public struct AuthOptions: Sendable {
+    public let autoRefreshToken: Bool
+    public let storage: AuthStorage
+    public let flowType: AuthFlowType
+
+    public init(
+        autoRefreshToken: Bool = true,
+        storage: AuthStorage = UserDefaultsAuthStorage(),
+        flowType: AuthFlowType = .pkce
+    ) {
+        self.autoRefreshToken = autoRefreshToken
+        self.storage = storage
+        self.flowType = flowType
+    }
+}
+
 /// Authentication client for InsForge
 public actor AuthClient {
     private let url: URL
@@ -10,10 +33,13 @@ public actor AuthClient {
     private let autoRefreshToken: Bool
     private let logger: (any InsForgeLogger)?
 
+    /// Callback invoked when auth state changes (sign in/up/out)
+    private var onAuthStateChange: (@Sendable (Session?) async -> Void)?
+
     public init(
         url: URL,
         headers: [String: String],
-        options: InsForgeClientOptions.AuthOptions,
+        options: AuthOptions = AuthOptions(),
         logger: (any InsForgeLogger)? = nil
     ) {
         self.url = url
@@ -22,6 +48,11 @@ public actor AuthClient {
         self.storage = options.storage
         self.autoRefreshToken = options.autoRefreshToken
         self.logger = logger
+    }
+
+    /// Set callback for auth state changes
+    public func setAuthStateChangeListener(_ listener: @escaping @Sendable (Session?) async -> Void) {
+        self.onAuthStateChange = listener
     }
 
     // MARK: - Sign Up
@@ -55,10 +86,14 @@ public actor AuthClient {
 
         // Save session if token is provided
         if let token = authResponse.accessToken {
-            try await storage.saveSession(Session(
+            let session = Session(
                 accessToken: token,
                 user: authResponse.user
-            ))
+            )
+            try await storage.saveSession(session)
+
+            // Notify listener about auth state change
+            await onAuthStateChange?(session)
         }
 
         return authResponse
@@ -89,11 +124,17 @@ public actor AuthClient {
 
         let authResponse = try response.decode(AuthResponse.self)
 
-        // Save session
-        try await storage.saveSession(Session(
-            accessToken: authResponse.accessToken,
-            user: authResponse.user
-        ))
+        // Save session if token is provided
+        if let accessToken = authResponse.accessToken {
+            let session = Session(
+                accessToken: accessToken,
+                user: authResponse.user
+            )
+            try await storage.saveSession(session)
+
+            // Notify listener about auth state change
+            await onAuthStateChange?(session)
+        }
 
         return authResponse
     }
@@ -104,6 +145,9 @@ public actor AuthClient {
     public func signOut() async throws {
         try await storage.deleteSession()
         logger?.log("User signed out")
+
+        // Notify listener about auth state change (nil = signed out)
+        await onAuthStateChange?(nil)
     }
 
     // MARK: - Get Current User
@@ -211,11 +255,13 @@ public actor AuthClient {
 
         let authResponse = try response.decode(AuthResponse.self)
 
-        // Save session
-        try await storage.saveSession(Session(
-            accessToken: authResponse.accessToken,
-            user: authResponse.user
-        ))
+        // Save session if token is provided
+        if let accessToken = authResponse.accessToken {
+            try await storage.saveSession(Session(
+                accessToken: accessToken,
+                user: authResponse.user
+            ))
+        }
 
         return authResponse
     }

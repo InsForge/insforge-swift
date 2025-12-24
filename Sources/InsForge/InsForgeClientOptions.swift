@@ -1,48 +1,10 @@
 import Foundation
 import InsForgeCore
 import InsForgeAuth
+import InsForgeDatabase
 
 /// Configuration options for InsForge client
 public struct InsForgeClientOptions: Sendable {
-    /// Database configuration options
-    public struct DatabaseOptions: Sendable {
-        /// Default JSON encoder
-        public let encoder: JSONEncoder
-
-        /// Default JSON decoder
-        public let decoder: JSONDecoder
-
-        public init(
-            encoder: JSONEncoder = .init(),
-            decoder: JSONDecoder = .init()
-        ) {
-            self.encoder = encoder
-            self.decoder = decoder
-        }
-    }
-
-    /// Authentication configuration options
-    public struct AuthOptions: Sendable {
-        /// Auto refresh access token
-        public let autoRefreshToken: Bool
-
-        /// Storage for authentication tokens
-        public let storage: AuthStorage
-
-        /// Flow type for OAuth
-        public let flowType: AuthFlowType
-
-        public init(
-            autoRefreshToken: Bool = true,
-            storage: AuthStorage = UserDefaultsAuthStorage(),
-            flowType: AuthFlowType = .pkce
-        ) {
-            self.autoRefreshToken = autoRefreshToken
-            self.storage = storage
-            self.flowType = flowType
-        }
-    }
-
     /// Global configuration options
     public struct GlobalOptions: Sendable {
         /// Additional headers to include in all requests
@@ -67,25 +29,19 @@ public struct InsForgeClientOptions: Sendable {
 
     // MARK: - Properties
 
-    public let database: DatabaseOptions
-    public let auth: AuthOptions
+    public let database: InsForgeDatabase.DatabaseOptions
+    public let auth: InsForgeAuth.AuthOptions
     public let global: GlobalOptions
 
     // MARK: - Initialization
 
     public init(
-        database: DatabaseOptions = .init(),
-        auth: AuthOptions = .init(),
+        database: InsForgeDatabase.DatabaseOptions = .init(),
+        auth: InsForgeAuth.AuthOptions = .init(),
         global: GlobalOptions = .init()
     ) {
         self.database = database
         self.auth = auth
         self.global = global
     }
-}
-
-/// Auth flow type for OAuth
-public enum AuthFlowType: String, Sendable {
-    case implicit
-    case pkce
 }

@@ -96,6 +96,7 @@ let package = Package(
             name: "InsForgeRealtime",
             dependencies: [
                 "InsForgeCore",
+                "InsForgeAuth",
                 .product(name: "Starscream", package: "Starscream")
             ],
             path: "Sources/Realtime"

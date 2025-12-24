@@ -1,6 +1,35 @@
 import Foundation
 import InsForgeCore
 
+/// Database client options
+public struct DatabaseOptions: Sendable {
+    public let encoder: JSONEncoder
+    public let decoder: JSONDecoder
+
+    public init(
+        encoder: JSONEncoder? = nil,
+        decoder: JSONDecoder? = nil
+    ) {
+        // Default encoder with ISO 8601 date encoding
+        if let encoder = encoder {
+            self.encoder = encoder
+        } else {
+            let e = JSONEncoder()
+            e.dateEncodingStrategy = .iso8601
+            self.encoder = e
+        }
+
+        // Default decoder with ISO 8601 date decoding (supports fractional seconds)
+        if let decoder = decoder {
+            self.decoder = decoder
+        } else {
+            let d = JSONDecoder()
+            d.dateDecodingStrategy = iso8601WithFractionalSecondsDecodingStrategy()
+            self.decoder = d
+        }
+    }
+}
+
 /// Database client for PostgREST-style operations
 public actor DatabaseClient {
     private let url: URL
@@ -13,7 +42,7 @@ public actor DatabaseClient {
     public init(
         url: URL,
         headers: [String: String],
-        options: InsForgeClientOptions.DatabaseOptions,
+        options: DatabaseOptions = DatabaseOptions(),
         logger: (any InsForgeLogger)? = nil
     ) {
         self.url = url
@@ -160,22 +189,22 @@ public struct QueryBuilder: Sendable {
         var builder = self
         builder.preferHeader = "return=representation"
 
-        let data = try encoder.encode(values)
+        let data = try builder.encoder.encode(values)
 
-        var requestHeaders = headers
+        var requestHeaders = builder.headers
         requestHeaders["Content-Type"] = "application/json"
-        if let prefer = preferHeader {
+        if let prefer = builder.preferHeader {
             requestHeaders["Prefer"] = prefer
         }
 
-        let response = try await httpClient.execute(
+        let response = try await builder.httpClient.execute(
             .post,
-            url: url,
+            url: builder.url,
             headers: requestHeaders,
             body: data
         )
 
-        return try decoder.decode([T].self, from: response.data)
+        return try builder.decoder.decode([T].self, from: response.data)
     }
 
     /// Insert single record

@@ -1,5 +1,6 @@
 import Foundation
 import InsForgeCore
+import InsForgeAuth
 import Starscream
 
 /// Realtime client for pub/sub messaging

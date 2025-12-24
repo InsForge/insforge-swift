@@ -3,11 +3,13 @@ import XCTest
 
 final class InsForgeClientTests: XCTestCase {
     var client: InsForgeClient!
+    var insforgeHost = "https://pg6afqz9.us-east.insforge.app"
+    var insforgeApiKey = "ik_ca177fcf1e2e72e8d1e0c2c23dbe3b79"
 
     override func setUp() async throws {
         client = InsForgeClient(
-            insForgeURL: URL(string: "https://test.insforge.com")!,
-            apiKey: "test-key"
+            insForgeURL: URL(string: insforgeHost)!,
+            apiKey: insforgeApiKey
         )
     }
 
@@ -16,10 +18,10 @@ final class InsForgeClientTests: XCTestCase {
     }
 
     func testClientInitialization() {
-        XCTAssertEqual(client.insForgeURL.absoluteString, "https://test.insforge.com")
-        XCTAssertEqual(client.apiKey, "test-key")
-        XCTAssertEqual(client.headers["apikey"], "test-key")
-        XCTAssertEqual(client.headers["Authorization"], "Bearer test-key")
+        XCTAssertEqual(client.insForgeURL.absoluteString, insforgeHost)
+        XCTAssertEqual(client.apiKey, insforgeApiKey)
+        XCTAssertEqual(client.headers["apikey"], insforgeApiKey)
+        XCTAssertEqual(client.headers["Authorization"], "Bearer \(insforgeApiKey)")
     }
 
     func testSubClientsInitialization() {
@@ -34,8 +36,8 @@ final class InsForgeClientTests: XCTestCase {
 
     func testCustomOptions() {
         let customClient = InsForgeClient(
-            insForgeURL: URL(string: "https://test.insforge.com")!,
-            apiKey: "test-key",
+            insForgeURL: URL(string: insforgeHost)!,
+            apiKey: insforgeApiKey,
             options: InsForgeClientOptions(
                 global: .init(
                     headers: ["X-Custom": "value"],

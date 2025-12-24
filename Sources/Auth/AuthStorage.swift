@@ -1,4 +1,5 @@
 import Foundation
+import InsForgeCore
 
 /// Protocol for storing authentication sessions
 public protocol AuthStorage: Sendable {
@@ -18,6 +19,7 @@ public actor UserDefaultsAuthStorage: AuthStorage {
 
     public func saveSession(_ session: Session) async throws {
         let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(session)
         userDefaults.set(data, forKey: key)
     }
@@ -27,6 +29,7 @@ public actor UserDefaultsAuthStorage: AuthStorage {
             return nil
         }
         let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = iso8601WithFractionalSecondsDecodingStrategy()
         return try decoder.decode(Session.self, from: data)
     }
 
