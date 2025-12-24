@@ -177,44 +177,83 @@ public actor AuthClient {
         try await storage.getSession()
     }
 
-    // MARK: - OAuth
+    // MARK: - OAuth / Default Page Sign In
 
-    /// Get OAuth URL for provider
-    public func getOAuthURL(
-        provider: OAuthProvider,
-        redirectTo: String
-    ) async throws -> URL {
-        let endpoint = url
-            .appendingPathComponent("oauth")
-            .appendingPathComponent(provider.rawValue)
+    /// Sign in using InsForge's default web authentication page
+    /// Supports both OAuth (Google, GitHub, etc.) and email+password login
+    /// - Parameter redirectTo: Callback URL where auth result will be sent
+    /// - Returns: URL to open in browser for authentication
+    public func signInWithDefaultPage(redirectTo: String) -> URL {
+        let endpoint = url.appendingPathComponent("sign-in")
 
-        var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)
-        components?.queryItems = [
-            URLQueryItem(name: "redirect_uri", value: redirectTo)
+        var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "redirect", value: redirectTo)
         ]
 
-        guard let url = components?.url else {
+        return components.url!
+    }
+
+    /// Process authentication callback and create session
+    /// Works with both OAuth and email+password authentication via default page
+    /// - Parameter callbackURL: The URL received from authentication callback
+    /// - Returns: AuthResponse with user and session
+    public func handleAuthCallback(_ callbackURL: URL) async throws -> AuthResponse {
+        // Parse callback URL parameters
+        guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems else {
             throw InsForgeError.invalidURL
         }
 
-        let response = try await httpClient.execute(
-            .get,
-            url: url,
-            headers: headers
+        // Extract parameters
+        var params: [String: String] = [:]
+        for item in queryItems {
+            if let value = item.value {
+                params[item.name] = value
+            }
+        }
+
+        guard let accessToken = params["access_token"],
+              let userId = params["user_id"],
+              let email = params["email"] else {
+            throw InsForgeError.invalidResponse
+        }
+
+        let name = params["name"]
+        let csrfToken = params["csrf_token"]
+
+        // Create user object from callback data
+        let user = User(
+            id: userId,
+            email: email,
+            name: name,
+            emailVerified: true, // OAuth users are typically verified
+            metadata: nil,
+            identities: nil,
+            providerType: nil, // Provider info not available from callback
+            createdAt: Date(),
+            updatedAt: Date()
         )
 
-        struct OAuthURLResponse: Codable {
-            let authUrl: String
-        }
+        // Save session
+        let session = Session(
+            accessToken: accessToken,
+            user: user
+        )
+        try await storage.saveSession(session)
 
-        let oauthResponse = try response.decode(OAuthURLResponse.self)
+        // Notify listener about auth state change
+        await onAuthStateChange?(session)
 
-        guard let authURL = URL(string: oauthResponse.authUrl) else {
-            throw InsForgeError.invalidURL
-        }
-
-        return authURL
+        // Return auth response
+        return AuthResponse(
+            user: user,
+            accessToken: accessToken,
+            requireEmailVerification: false,
+            redirectTo: nil
+        )
     }
+
 
     // MARK: - Email Verification
 

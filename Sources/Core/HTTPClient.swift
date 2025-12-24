@@ -43,6 +43,9 @@ public actor HTTPClient: Sendable {
         }
 
         logger?.log("[\(method.rawValue)] \(url)")
+        if !headers.isEmpty {
+            logger?.log("Request headers: \(headers)")
+        }
         if let body = body, let bodyString = String(data: body, encoding: .utf8) {
             logger?.log("Request body: \(bodyString)")
         }

@@ -40,12 +40,15 @@ public actor StorageClient {
             headers: headers
         )
 
-        struct BucketsResponse: Codable {
-            let buckets: [String]
+        struct BucketInfo: Codable {
+            let name: String
+            let `public`: Bool
+            let createdAt: String
         }
 
-        let bucketsResponse = try response.decode(BucketsResponse.self)
-        return bucketsResponse.buckets
+        // API returns array of bucket objects directly
+        let bucketInfos = try response.decode([BucketInfo].self)
+        return bucketInfos.map { $0.name }
     }
 
     /// Create a new bucket
@@ -76,7 +79,6 @@ public actor StorageClient {
         let endpoint = url
             .appendingPathComponent("buckets")
             .appendingPathComponent(name)
-            .appendingPathComponent("objects")
 
         _ = try await httpClient.execute(
             .delete,

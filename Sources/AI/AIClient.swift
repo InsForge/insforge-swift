@@ -61,7 +61,14 @@ public actor AIClient {
             body: data
         )
 
-        return try response.decode(ChatCompletionResponse.self)
+        // Try decoding the response
+        do {
+            return try response.decode(ChatCompletionResponse.self)
+        } catch {
+            logger?.log("[ChatCompletion] Failed to decode response: \(error)")
+            logger?.log("[ChatCompletion] Response data: \(String(data: response.data, encoding: .utf8) ?? "unable to decode")")
+            throw error
+        }
     }
 
     // MARK: - Image Generation
@@ -102,7 +109,33 @@ public actor AIClient {
             headers: headers
         )
 
-        return try response.decode(ListModelsResponse.self)
+        // API returns array of models directly
+        let models = try response.decode([AIModel].self)
+
+        // Organize models by modality
+        let textModels = models.filter { $0.outputModality.contains("text") }
+        let imageModels = models.filter { $0.outputModality.contains("image") }
+
+        // Group by provider
+        let textProviders = Dictionary(grouping: textModels) { $0.provider }
+            .map { provider, models in
+                ListModelsResponse.ModelProvider(
+                    provider: provider,
+                    configured: true,  // All returned models are configured
+                    models: models
+                )
+            }
+
+        let imageProviders = Dictionary(grouping: imageModels) { $0.provider }
+            .map { provider, models in
+                ListModelsResponse.ModelProvider(
+                    provider: provider,
+                    configured: true,
+                    models: models
+                )
+            }
+
+        return ListModelsResponse(text: textProviders, image: imageProviders)
     }
 }
 
@@ -134,9 +167,17 @@ public struct ChatMessage: Codable, Sendable {
 
 /// Chat completion response
 public struct ChatCompletionResponse: Codable, Sendable {
-    public let success: Bool
-    public let content: String
+    public let text: String
     public let metadata: Metadata?
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case metadata
+    }
+
+    // Computed properties for compatibility
+    public var content: String { text }
+    public var success: Bool { !text.isEmpty }
 
     public struct Metadata: Codable, Sendable {
         public let model: String
@@ -155,11 +196,24 @@ public struct TokenUsage: Codable, Sendable {
 
 /// Image generation response
 public struct ImageGenerationResponse: Codable, Sendable {
-    public let model: String
+    public let model: String?
     public let images: [ImageMessage]
     public let text: String?
-    public let count: Int
+    public let count: Int?
     public let metadata: Metadata?
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case images
+        case text
+        case metadata
+        case count
+    }
+
+    // Computed property for count compatibility
+    public var imageCount: Int {
+        count ?? images.count
+    }
 
     public struct Metadata: Codable, Sendable {
         public let model: String
@@ -171,20 +225,15 @@ public struct ImageGenerationResponse: Codable, Sendable {
 /// Image message
 public struct ImageMessage: Codable, Sendable {
     public let type: String
-    public let imageUrl: ImageURL
-
-    public struct ImageURL: Codable, Sendable {
-        public let url: String
-
-        enum CodingKeys: String, CodingKey {
-            case url
-        }
-    }
+    public let imageUrl: String
 
     enum CodingKeys: String, CodingKey {
         case type
-        case imageUrl = "image_url"
+        case imageUrl
     }
+
+    // Computed property for compatibility
+    public var url: String { imageUrl }
 }
 
 // MARK: - Models List
@@ -204,14 +253,15 @@ public struct ListModelsResponse: Codable, Sendable {
 /// AI model information
 public struct AIModel: Codable, Sendable {
     public let id: String
-    public let name: String
-    public let description: String?
-    public let contextLength: Int?
-    public let maxCompletionTokens: Int?
+    public let modelId: String
+    public let provider: String
+    public let inputModality: [String]
+    public let outputModality: [String]
+    public let priceLevel: Int
 
-    enum CodingKeys: String, CodingKey {
-        case id, name, description
-        case contextLength = "context_length"
-        case maxCompletionTokens = "max_completion_tokens"
-    }
+    // Computed properties for compatibility
+    public var name: String { id }
+    public var description: String? { nil }
+    public var contextLength: Int? { nil }
+    public var maxCompletionTokens: Int? { nil }
 }
