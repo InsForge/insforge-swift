@@ -15,8 +15,8 @@ enum Config {
     /// Example: "https://your-project.insforge.com"
     static let insForgeURL = "https://your-project.insforge.com"
 
-    /// Your InsForge API key
-    /// Get this from your InsForge dashboard
-    static let apiKey = "your-api-key-here"
+    /// Your InsForge anon/public key
+    /// Get this from your InsForge dashboard (use anon key, not service role key)
+    static let insForgeKey = "your-insforge-key-here"
 }
 

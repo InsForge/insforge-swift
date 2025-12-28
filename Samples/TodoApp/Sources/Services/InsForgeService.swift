@@ -23,7 +23,7 @@ class InsForgeService: ObservableObject {
 
         self.client = InsForgeClient(
             insForgeURL: url,
-            apiKey: Config.apiKey,
+            insForgeKey: Config.insForgeKey,
             options: InsForgeClientOptions(
                 global: InsForgeClientOptions.GlobalOptions(
                     logger: ConsoleLogger()

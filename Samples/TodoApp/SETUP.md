@@ -33,7 +33,7 @@ enum Config {
     static let insForgeURL = "https://your-project.insforge.com"
 
     // 替换为你的 API 密钥
-    static let apiKey = "your-api-key-here"
+    static let insForgeKey = "your-api-key-here"
 }
 ```
 
@@ -68,7 +68,7 @@ import Foundation
 
 enum Config {
     static let insForgeURL = "https://my-app.insforge.com"
-    static let apiKey = "sk_live_xxxxxxxxxxxxxxxxxxxxx"
+    static let insForgeKey = "sk_live_xxxxxxxxxxxxxxxxxxxxx"
 }
 ```
 
@@ -85,7 +85,7 @@ import Foundation
 
 enum Config {
     static let insForgeURL = "https://your-project.insforge.com"
-    static let apiKey = "your-api-key-here"
+    static let insForgeKey = "your-api-key-here"
 }
 ```
 
@@ -103,10 +103,10 @@ enum Config {
 enum Config {
     #if DEBUG
     static let insForgeURL = "https://dev.insforge.com"
-    static let apiKey = "sk_test_xxxxx"
+    static let insForgeKey = "sk_test_xxxxx"
     #else
     static let insForgeURL = "https://prod.insforge.com"
-    static let apiKey = "sk_live_xxxxx"
+    static let insForgeKey = "sk_live_xxxxx"
     #endif
 }
 ```

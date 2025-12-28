@@ -38,7 +38,7 @@ final class InsForgeFunctionsTests: XCTestCase {
         // Create InsForge client (follows SDK best practice)
         insForgeClient = InsForgeClient(
             insForgeURL: URL(string: insForgeURL)!,
-            apiKey: apiKey
+            insForgeKey: apiKey
         )
         print("📍 InsForge URL: \(insForgeURL)")
     }

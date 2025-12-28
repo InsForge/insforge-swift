@@ -63,7 +63,7 @@ Edit `Sources/Config.swift` and replace the values:
 ```swift
 enum Config {
     static let insForgeURL = "https://your-project.insforge.com"  // Your InsForge URL
-    static let apiKey = "your-api-key-here"                       // Your API key
+    static let insForgeKey = "your-api-key-here"                       // Your API key
 }
 ```
 

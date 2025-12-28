@@ -46,7 +46,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     private func createTestClient() -> InsForgeClient {
         return InsForgeClient(
             insForgeURL: URL(string: "https://pg6afqz9.us-east.insforge.app")!,
-            apiKey: "ik_ca177fcf1e2e72e8d1e0c2c23dbe3b79"
+            insForgeKey: "ik_ca177fcf1e2e72e8d1e0c2c23dbe3b79"
         )
     }
 

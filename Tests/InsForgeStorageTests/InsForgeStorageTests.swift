@@ -36,7 +36,7 @@ final class InsForgeStorageTests: XCTestCase {
     override func setUp() async throws {
         insForgeClient = InsForgeClient(
             insForgeURL: URL(string: insForgeURL)!,
-            apiKey: apiKey
+            insForgeKey: apiKey
         )
         print("📍 InsForge URL: \(insForgeURL)")
     }

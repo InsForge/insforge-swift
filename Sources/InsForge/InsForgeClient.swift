@@ -17,8 +17,8 @@ public final class InsForgeClient: Sendable {
     /// Base URL for the InsForge instance
     public let insForgeURL: URL
 
-    /// API key for authentication
-    public let apiKey: String
+    /// InsForge anon/public key for authentication
+    public let insForgeKey: String
 
     /// Headers shared across all requests (thread-safe, dynamically updated)
     private let _headers: LockIsolated<[String: String]>
@@ -44,21 +44,21 @@ public final class InsForgeClient: Sendable {
     /// Initialize InsForge client
     /// - Parameters:
     ///   - insForgeURL: Base URL for your InsForge instance
-    ///   - apiKey: Anonymous or service role API key
+    ///   - insForgeKey: Anonymous/public key (not service role key)
     ///   - options: Configuration options
     public init(
         insForgeURL: URL,
-        apiKey: String,
+        insForgeKey: String,
         options: InsForgeClientOptions = .init()
     ) {
         self.insForgeURL = insForgeURL
-        self.apiKey = apiKey
+        self.insForgeKey = insForgeKey
         self.options = options
 
-        // Build shared headers with API key as default Authorization
+        // Build shared headers with InsForge key as default Authorization
         var headers = options.global.headers
-        headers["apikey"] = apiKey
-        headers["Authorization"] = "Bearer \(apiKey)"
+        headers["apikey"] = insForgeKey
+        headers["Authorization"] = "Bearer \(insForgeKey)"
         headers["X-Client-Info"] = "insforge-swift/\(InsForgeClient.version)"
         self._headers = LockIsolated(headers)
 
@@ -82,11 +82,11 @@ public final class InsForgeClient: Sendable {
                     }
                     options.global.logger?.log("Auth headers updated with user token")
                 } else {
-                    // User signed out - reset to API key
+                    // User signed out - reset to InsForge key
                     self._headers.withValue { headers in
-                        headers["Authorization"] = "Bearer \(self.apiKey)"
+                        headers["Authorization"] = "Bearer \(self.insForgeKey)"
                     }
-                    options.global.logger?.log("Auth headers reset to API key")
+                    options.global.logger?.log("Auth headers reset to InsForge key")
                 }
             }
         }
@@ -168,7 +168,7 @@ public final class InsForgeClient: Sendable {
 
                 state.realtime = RealtimeClient(
                     url: wsURL.appendingPathComponent("api/realtime"),
-                    apiKey: apiKey,
+                    apiKey: insForgeKey,
                     headers: _headers.value,
                     logger: options.global.logger
                 )
