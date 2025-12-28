@@ -65,6 +65,7 @@ public final class InsForgeClient: Sendable {
         // Initialize auth client (auth always uses API key for auth endpoints)
         self._auth = AuthClient(
             url: insForgeURL.appendingPathComponent("api/auth"),
+            authComponent: insForgeURL.appendingPathComponent("auth"),
             headers: headers,
             options: options.auth,
             logger: options.global.logger

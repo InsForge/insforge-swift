@@ -68,9 +68,24 @@ cat > TodoApp.app/Contents/Info.plist << 'EOF'
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.insforge.todoapp</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>todoapp</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
 EOF
+
+# 注册 URL scheme
+echo "🔗 注册 URL scheme (todoapp://)..."
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$(pwd)/TodoApp.app"
 
 echo ""
 echo "✅ TodoApp.app 创建成功！"
@@ -88,4 +103,6 @@ echo "   - 这是一个真正的 macOS 应用"
 echo "   - 窗口会正常激活，可以使用 ⌘Tab 切换"
 echo "   - 可以拖到应用程序文件夹"
 echo "   - 键盘输入应该正常工作了！"
+echo "   - 已注册 URL scheme: todoapp://"
+echo "   - 支持 OAuth 登录回调"
 echo ""

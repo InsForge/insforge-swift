@@ -73,6 +73,23 @@ class InsForgeService: ObservableObject {
         self.isAuthenticated = true
     }
 
+    // MARK: - OAuth Authentication
+
+    /// Sign in using OAuth via default web view
+    func signInWithOAuth() async {
+        await client.auth.signInWithDefaultView(redirectTo: "todoapp://auth/callback")
+    }
+
+    /// Handle OAuth callback and authenticate user
+    func handleOAuthCallback(_ url: URL) async throws {
+        print("[InsForgeService] handleOAuthCallback called with URL: \(url)")
+        let response = try await client.auth.handleAuthCallback(url)
+        print("[InsForgeService] OAuth callback handled, user ID: \(response.user.id)")
+
+        self.currentUser = response.user
+        self.isAuthenticated = true
+    }
+
     // MARK: - Todo Operations
 
     func fetchTodos() async throws -> [Todo] {

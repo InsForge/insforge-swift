@@ -1,5 +1,10 @@
 import Foundation
 import InsForgeCore
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 /// Auth flow type for OAuth
 public enum AuthFlowType: String, Sendable {
@@ -27,6 +32,7 @@ public struct AuthOptions: Sendable {
 /// Authentication client for InsForge
 public actor AuthClient {
     private let url: URL
+    private let authComponent: URL
     private let headers: [String: String]
     private let httpClient: HTTPClient
     private let storage: AuthStorage
@@ -38,11 +44,13 @@ public actor AuthClient {
 
     public init(
         url: URL,
+        authComponent: URL,
         headers: [String: String],
         options: AuthOptions = AuthOptions(),
         logger: (any InsForgeLogger)? = nil
     ) {
         self.url = url
+        self.authComponent = authComponent
         self.headers = headers
         self.httpClient = HTTPClient(logger: logger)
         self.storage = options.storage
@@ -180,18 +188,28 @@ public actor AuthClient {
     // MARK: - OAuth / Default Page Sign In
 
     /// Sign in using InsForge's default web authentication page
-    /// Supports both OAuth (Google, GitHub, etc.) and email+password login
+    /// Opens the browser to authenticate with OAuth (Google, GitHub, etc.) or email+password
     /// - Parameter redirectTo: Callback URL where auth result will be sent
-    /// - Returns: URL to open in browser for authentication
-    public func signInWithDefaultPage(redirectTo: String) -> URL {
-        let endpoint = url.appendingPathComponent("sign-in")
+    public func signInWithDefaultView(redirectTo: String) async {
+        let endpoint = authComponent.appendingPathComponent("sign-in")
 
         var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "redirect", value: redirectTo)
         ]
 
-        return components.url!
+        guard let authURL = components.url else {
+            logger?.log("Failed to construct sign-in URL")
+            return
+        }
+
+        logger?.log("Opening sign-in page: \(authURL)")
+
+        #if os(macOS)
+        await NSWorkspace.shared.open(authURL)
+        #elseif os(iOS)
+        await UIApplication.shared.open(authURL)
+        #endif
     }
 
     /// Process authentication callback and create session

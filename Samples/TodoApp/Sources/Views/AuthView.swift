@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct AuthView: View {
     @StateObject private var service = InsForgeService.shared
@@ -77,6 +78,29 @@ struct AuthView: View {
             .disabled(isLoading || !isFormValid)
             .frame(maxWidth: 300)
 
+            // Divider
+            HStack {
+                VStack { Divider() }
+                Text("OR")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                VStack { Divider() }
+            }
+            .frame(maxWidth: 300)
+            .padding(.vertical, 8)
+
+            // OAuth Sign In button
+            Button(action: handleOAuthSignIn) {
+                HStack {
+                    Image(systemName: "globe")
+                    Text("Sign In with OAuth")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .frame(maxWidth: 300)
+            .help("Sign in using Google, GitHub, or other OAuth providers")
+
             // Toggle sign up/in
             Button(action: { isSignUp.toggle() }) {
                 Text(isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
@@ -85,7 +109,7 @@ struct AuthView: View {
             .buttonStyle(.plain)
         }
         .padding(40)
-        .frame(width: 450, height: 500)
+        .frame(width: 450, height: 600)
     }
 
     private var isFormValid: Bool {
@@ -132,6 +156,13 @@ struct AuthView: View {
             }
 
             isLoading = false
+        }
+    }
+
+    private func handleOAuthSignIn() {
+        Task {
+            print("[AuthView] Opening OAuth sign-in page...")
+            await service.signInWithOAuth()
         }
     }
 }
