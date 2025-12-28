@@ -12,6 +12,7 @@ public actor RealtimeClient {
     private var socket: WebSocket?
     private var isConnected = false
     private var subscriptions: [String: [(RealtimeMessage) -> Void]] = [:]
+    private var channels: [String: RealtimeChannel] = [:]
 
     public init(
         url: URL,
@@ -23,6 +24,27 @@ public actor RealtimeClient {
         self.apiKey = apiKey
         self.headers = headers
         self.logger = logger
+    }
+
+    // MARK: - High-Level Channel API
+
+    /// Get or create a channel
+    /// - Parameter channelName: Name of the channel
+    /// - Returns: RealtimeChannel instance
+    public func channel(_ channelName: String) -> RealtimeChannel {
+        if let existing = channels[channelName] {
+            return existing
+        }
+
+        let newChannel = RealtimeChannel(channelName: channelName, client: self)
+        channels[channelName] = newChannel
+        return newChannel
+    }
+
+    /// Remove a channel
+    /// - Parameter channelName: Name of the channel to remove
+    public func removeChannel(_ channelName: String) {
+        channels.removeValue(forKey: channelName)
     }
 
     // MARK: - Connection
@@ -43,7 +65,7 @@ public actor RealtimeClient {
         }
 
         let socket = WebSocket(request: request)
-        socket.delegate = self as? any WebSocketDelegate
+        socket.delegate = self
         socket.connect()
 
         self.socket = socket
