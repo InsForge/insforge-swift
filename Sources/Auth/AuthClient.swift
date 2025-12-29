@@ -2,7 +2,7 @@ import Foundation
 import InsForgeCore
 #if os(macOS)
 import AppKit
-#elseif os(iOS)
+#elseif os(iOS) || os(tvOS)
 import UIKit
 #endif
 
@@ -207,7 +207,7 @@ public actor AuthClient {
 
         #if os(macOS)
         await NSWorkspace.shared.open(authURL)
-        #elseif os(iOS)
+        #elseif os(iOS) || os(tvOS)
         await UIApplication.shared.open(authURL)
         #endif
     }

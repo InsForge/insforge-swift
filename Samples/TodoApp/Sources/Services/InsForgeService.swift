@@ -30,6 +30,26 @@ class InsForgeService: ObservableObject {
                 )
             )
         )
+
+        // Check for existing session to auto-login user
+        Task { @MainActor in
+            await checkExistingSession()
+        }
+    }
+
+    /// Check if user has existing valid session and auto-login
+    private func checkExistingSession() async {
+        do {
+            if let session = try await client.auth.getSession() {
+                print("[InsForgeService] Existing session found for user ID: \(session.user.id)")
+                self.currentUser = session.user
+                self.isAuthenticated = true
+            } else {
+                print("[InsForgeService] No existing session found")
+            }
+        } catch {
+            print("[InsForgeService] Error retrieving session: \(error)")
+        }
     }
 
     // MARK: - Authentication

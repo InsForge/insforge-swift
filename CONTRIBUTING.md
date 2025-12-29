@@ -12,7 +12,7 @@ By participating in this project, you agree to abide by our code of conduct. Ple
 
 If you find a bug, please report it by following these steps:
 
-1. **Check if it already exists**: Search [GitHub Issues](https://github.com/YOUR_ORG/insforge-swift/issues) to ensure the issue hasn't been reported yet
+1. **Check if it already exists**: Search [GitHub Issues](https://github.com/InsForge/insforge-swift/issues) to ensure the issue hasn't been reported yet
 2. **Create a detailed Issue**: Use the Bug Report template, including:
    - Clear title and description
    - Steps to reproduce
@@ -45,7 +45,7 @@ git clone https://github.com/YOUR_USERNAME/insforge-swift.git
 cd insforge-swift
 
 # 3. Add upstream repository
-git remote add upstream https://github.com/YOUR_ORG/insforge-swift.git
+git remote add upstream https://github.com/InsForge/insforge-swift.git
 
 # 4. Create development branch
 git checkout -b feature/my-awesome-feature
@@ -327,10 +327,10 @@ Only maintainers can release new versions:
 
 If you have questions:
 
-- Check the [documentation](https://github.com/YOUR_ORG/insforge-swift/tree/main/docs)
-- Search existing [Issues](https://github.com/YOUR_ORG/insforge-swift/issues)
-- Ask in [Discussions](https://github.com/YOUR_ORG/insforge-swift/discussions)
-- Join the [Discord community](https://discord.gg/insforge)
+- Check the [documentation](https://github.com/InsForge/insforge-swift/tree/main/docs)
+- Search existing [Issues](https://github.com/InsForge/insforge-swift/issues)
+- Ask in [Discussions](https://github.com/InsForge/insforge-swift/discussions)
+- Join the [Discord community](https://discord.gg/DvBtaEc9Jz)
 
 ## Acknowledgments
 

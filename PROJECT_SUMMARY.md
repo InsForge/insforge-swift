@@ -191,7 +191,7 @@ import InsForge
 // Initialize
 let client = InsForgeClient(
     insForgeURL: URL(string: "https://project.insforge.com")!,
-    apiKey: "anon-key"
+    insForgeKey: "anon-key"
 )
 
 // Authentication

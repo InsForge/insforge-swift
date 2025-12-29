@@ -24,13 +24,13 @@ Add the following to your `Package.swift` file:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/your-org/insforge-swift.git", from: "1.0.0")
+    .package(url: "https://github.com/InsForge/insforge-swift.git", from: "1.0.0")
 ]
 ```
 
 Or add it through Xcode:
 1. File > Add Package Dependencies...
-2. Enter package URL: `https://github.com/your-org/insforge-swift.git`
+2. Enter package URL: `https://github.com/InsForge/insforge-swift.git`
 
 ## Quick Start
 
@@ -41,7 +41,7 @@ import InsForge
 
 let client = InsForgeClient(
     insForgeURL: URL(string: "https://your-project.insforge.com")!,
-    apiKey: "your-anon-key"
+    insForgeKey: "your-anon-key"
 )
 ```
 
@@ -236,7 +236,7 @@ await client.realtime.disconnect()
 ```swift
 let client = InsForgeClient(
     insForgeURL: URL(string: "https://your-project.insforge.com")!,
-    apiKey: "your-anon-key",
+    insForgeKey: "your-anon-key",
     options: InsForgeClientOptions(
         database: .init(
             encoder: customJSONEncoder,
