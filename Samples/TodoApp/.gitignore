@@ -1,0 +1,29 @@
+# Xcode
+*.xcodeproj
+*.xcworkspace
+!*.xcworkspace/contents.xcworkspacedata
+!*.xcworkspace/xcshareddata/
+*.xcuserdata
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.pbxuser
+!default.pbxuser
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Build artifacts
+*.app
+*.dSYM.zip
+*.dSYM
+
+# Configuration (contains API keys)
+Config.swift
