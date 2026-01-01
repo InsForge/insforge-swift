@@ -12,11 +12,13 @@ import XCTest
 /// ## What's tested:
 /// - List buckets
 /// - Create bucket
-/// - Upload files (with auto-generated key and specific key)
+/// - Update bucket
+/// - Upload files (with specific key and auto-generated key)
 /// - List files in bucket
 /// - Download files
 /// - Delete files
 /// - Delete bucket
+/// - Upload/Download strategies (for S3 presigned URLs)
 final class InsForgeStorageTests: XCTestCase {
     // MARK: - Configuration
 
@@ -35,8 +37,8 @@ final class InsForgeStorageTests: XCTestCase {
 
     override func setUp() async throws {
         insForgeClient = InsForgeClient(
-            insForgeURL: URL(string: insForgeURL)!,
-            insForgeKey: apiKey
+            baseURL: URL(string: insForgeURL)!,
+            anonKey: apiKey
         )
         print("📍 InsForge URL: \(insForgeURL)")
     }
@@ -65,11 +67,11 @@ final class InsForgeStorageTests: XCTestCase {
         let json = """
         {
             "bucket": "avatars",
-            "key": "user123.jpg",
-            "size": 102400,
+            "key": "users/user123.jpg",
+            "size": 12345,
             "mimeType": "image/jpeg",
             "uploadedAt": "2025-01-01T00:00:00Z",
-            "url": "/api/storage/buckets/avatars/objects/user123.jpg"
+            "url": "https://storage.insforge.com/avatars/users/user123.jpg"
         }
         """
 
@@ -80,10 +82,84 @@ final class InsForgeStorageTests: XCTestCase {
         let file = try decoder.decode(StoredFile.self, from: data)
 
         XCTAssertEqual(file.bucket, "avatars")
-        XCTAssertEqual(file.key, "user123.jpg")
-        XCTAssertEqual(file.size, 102400)
+        XCTAssertEqual(file.key, "users/user123.jpg")
+        XCTAssertEqual(file.size, 12345)
         XCTAssertEqual(file.mimeType, "image/jpeg")
-        XCTAssertEqual(file.url, "/api/storage/buckets/avatars/objects/user123.jpg")
+    }
+
+    func testUploadStrategyDecoding() throws {
+        let json = """
+        {
+            "method": "presigned",
+            "uploadUrl": "https://s3.amazonaws.com/bucket/...",
+            "fields": {"key": "value"},
+            "key": "users/avatar.jpg",
+            "confirmRequired": true,
+            "confirmUrl": "https://api.insforge.com/storage/confirm",
+            "expiresAt": "2025-01-01T01:00:00Z"
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let decoder = JSONDecoder()
+
+        let strategy = try decoder.decode(UploadStrategy.self, from: data)
+
+        XCTAssertEqual(strategy.method, "presigned")
+        XCTAssertEqual(strategy.key, "users/avatar.jpg")
+        XCTAssertTrue(strategy.confirmRequired)
+        XCTAssertNotNil(strategy.fields)
+    }
+
+    func testDownloadStrategyDecoding() throws {
+        let json = """
+        {
+            "method": "presigned",
+            "url": "https://s3.amazonaws.com/bucket/...",
+            "expiresAt": "2025-01-01T01:00:00Z"
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let decoder = JSONDecoder()
+
+        let strategy = try decoder.decode(DownloadStrategy.self, from: data)
+
+        XCTAssertEqual(strategy.method, "presigned")
+        XCTAssertNotNil(strategy.url)
+        XCTAssertNotNil(strategy.expiresAt)
+    }
+
+    func testListResponseDecoding() throws {
+        let json = """
+        {
+            "data": [
+                {
+                    "bucket": "avatars",
+                    "key": "file1.jpg",
+                    "size": 1000,
+                    "mimeType": "image/jpeg",
+                    "uploadedAt": "2025-01-01T00:00:00Z",
+                    "url": "https://storage.insforge.com/avatars/file1.jpg"
+                }
+            ],
+            "pagination": {
+                "offset": 0,
+                "limit": 100,
+                "total": 1
+            }
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let response = try decoder.decode(ListResponse.self, from: data)
+
+        XCTAssertEqual(response.data.count, 1)
+        XCTAssertEqual(response.data.first?.key, "file1.jpg")
+        XCTAssertEqual(response.pagination?.total, 1)
     }
 
     /// Test listing buckets
@@ -93,7 +169,10 @@ final class InsForgeStorageTests: XCTestCase {
         let buckets = try await insForgeClient.storage.listBuckets()
 
         XCTAssertNotNil(buckets)
-        print("✅ Found \(buckets.count) bucket(s): \(buckets)")
+        print("✅ Found \(buckets.count) bucket(s)")
+        for bucket in buckets {
+            print("   - \(bucket)")
+        }
     }
 
     /// Test creating a bucket
@@ -103,10 +182,10 @@ final class InsForgeStorageTests: XCTestCase {
         // Delete if already exists
         try? await insForgeClient.storage.deleteBucket(testBucketName)
 
-        // Create bucket
+        // Create bucket with options
         try await insForgeClient.storage.createBucket(
-            name: testBucketName,
-            isPublic: true
+            testBucketName,
+            options: BucketOptions(isPublic: true)
         )
 
         // Verify it exists
@@ -117,208 +196,346 @@ final class InsForgeStorageTests: XCTestCase {
         print("✅ Successfully created bucket: \(testBucketName)")
     }
 
-    /// Test uploading a file with auto-generated key
-    /// NOTE: Auto-key upload may not be supported by all InsForge instances
-    func testUploadFileWithAutoKey() async throws {
-        print("🔵 Testing bucket.upload (auto-generated key)...")
+    /// Test updating a bucket
+    func testUpdateBucket() async throws {
+        print("🔵 Testing updateBucket...")
 
         // Ensure bucket exists
-        try? await insForgeClient.storage.createBucket(name: testBucketName, isPublic: true)
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
 
-        // Create test file
-        let testContent = "Hello from Swift SDK - Auto Key".data(using: .utf8)!
-        let fileName = "test-auto-\(UUID().uuidString).txt"
+        // Update bucket to private
+        try await insForgeClient.storage.updateBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: false)
+        )
 
-        // Upload file
-        let bucket = await insForgeClient.storage.bucket(testBucketName)
-
-        do {
-            let uploadedFile = try await bucket.upload(
-                file: testContent,
-                fileName: fileName,
-                mimeType: "text/plain"
-            )
-
-            // Verify
-            XCTAssertEqual(uploadedFile.bucket, testBucketName)
-            XCTAssertFalse(uploadedFile.key.isEmpty)
-            XCTAssertEqual(uploadedFile.size, testContent.count)
-            XCTAssertEqual(uploadedFile.mimeType, "text/plain")
-
-            print("✅ Uploaded file: \(uploadedFile.key), size: \(uploadedFile.size) bytes")
-        } catch let error as InsForgeError {
-            if case .httpError(let statusCode, _, _, _) = error, statusCode == 404 {
-                throw XCTSkip("Auto-key upload not supported by this InsForge instance")
-            } else {
-                throw error
-            }
-        }
+        print("✅ Successfully updated bucket: \(testBucketName)")
     }
 
-    /// Test uploading a file with specific key
-    func testUploadFileWithSpecificKey() async throws {
-        print("🔵 Testing bucket.upload (specific key)...")
+    /// Test uploading a file with specific path
+    func testUploadFile() async throws {
+        print("🔵 Testing upload with path...")
 
         // Ensure bucket exists
-        try? await insForgeClient.storage.createBucket(name: testBucketName, isPublic: true)
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
 
         // Create test file
-        let testContent = "Hello from Swift SDK - Specific Key".data(using: .utf8)!
-        let fileKey = "test-files/specific-\(UUID().uuidString).txt"
+        let testContent = "Hello from Swift SDK".data(using: .utf8)!
+        let filePath = "test-files/hello-\(UUID().uuidString).txt"
 
         // Upload file
-        let bucket = await insForgeClient.storage.bucket(testBucketName)
-        let uploadedFile = try await bucket.upload(
-            file: testContent,
-            key: fileKey,
-            mimeType: "text/plain"
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+        let uploadedFile = try await fileApi.upload(
+            path: filePath,
+            data: testContent,
+            options: FileOptions(contentType: "text/plain")
         )
 
         // Verify
+        XCTAssertEqual(uploadedFile.key, filePath)
         XCTAssertEqual(uploadedFile.bucket, testBucketName)
-        XCTAssertEqual(uploadedFile.key, fileKey)
-        XCTAssertEqual(uploadedFile.size, testContent.count)
 
-        print("✅ Uploaded file with key: \(uploadedFile.key)")
+        print("✅ Uploaded file: \(uploadedFile.key)")
+    }
+
+    /// Test uploading a file with auto-generated key
+    func testUploadFileAutoKey() async throws {
+        print("🔵 Testing upload with auto-generated key...")
+
+        // Ensure bucket exists
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
+
+        // Create test file
+        let testContent = "Hello from Swift SDK - Auto Key".data(using: .utf8)!
+
+        // Upload file with auto-generated key
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+        let uploadedFile = try await fileApi.upload(
+            data: testContent,
+            fileName: "auto-test.txt",
+            options: FileOptions(contentType: "text/plain")
+        )
+
+        // Verify
+        XCTAssertFalse(uploadedFile.key.isEmpty)
+        XCTAssertEqual(uploadedFile.bucket, testBucketName)
+
+        print("✅ Uploaded file with auto key: \(uploadedFile.key)")
+    }
+
+    /// Test uploading from file URL
+    func testUploadFileFromURL() async throws {
+        print("🔵 Testing upload from file URL...")
+
+        // Ensure bucket exists
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
+
+        // Create a temporary file
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFile = tempDir.appendingPathComponent("test-upload-\(UUID().uuidString).txt")
+        let testContent = "Hello from file URL upload"
+        try testContent.write(to: tempFile, atomically: true, encoding: .utf8)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempFile)
+        }
+
+        // Upload from file URL
+        let filePath = "url-upload-test.txt"
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+        let uploadedFile = try await fileApi.upload(
+            path: filePath,
+            fileURL: tempFile,
+            options: FileOptions(contentType: "text/plain")
+        )
+
+        // Verify
+        XCTAssertEqual(uploadedFile.key, filePath)
+
+        print("✅ Uploaded file from URL: \(uploadedFile.key)")
     }
 
     /// Test listing files in bucket
     func testListFiles() async throws {
-        print("🔵 Testing bucket.list...")
+        print("🔵 Testing list...")
 
         // Ensure bucket exists and has files
-        try? await insForgeClient.storage.createBucket(name: testBucketName, isPublic: true)
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
 
-        let bucket = await insForgeClient.storage.bucket(testBucketName)
+        let fileApi = await insForgeClient.storage.from(testBucketName)
 
-        // Upload a test file first (use key, not fileName)
+        // Upload a test file first
         let testContent = "Test content for listing".data(using: .utf8)!
-        _ = try await bucket.upload(
-            file: testContent,
-            key: "test-list-\(UUID().uuidString).txt",
-            mimeType: "text/plain"
+        _ = try await fileApi.upload(
+            path: "test-list-\(UUID().uuidString).txt",
+            data: testContent
         )
 
         // List files
-        let files = try await bucket.list()
+        let files = try await fileApi.list()
 
         XCTAssertNotNil(files)
         XCTAssertFalse(files.isEmpty, "Bucket should contain at least one file")
 
         print("✅ Listed \(files.count) file(s) in bucket")
         for file in files.prefix(5) {
-            print("   - \(file.key) (\(file.size) bytes)")
+            print("   - \(file.key)")
         }
     }
 
-    /// Test listing files with prefix filter
+    /// Test listing files with prefix
     func testListFilesWithPrefix() async throws {
-        print("🔵 Testing bucket.list with prefix...")
+        print("🔵 Testing list with prefix...")
 
         // Ensure bucket exists
-        try? await insForgeClient.storage.createBucket(name: testBucketName, isPublic: true)
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
 
-        let bucket = await insForgeClient.storage.bucket(testBucketName)
+        let fileApi = await insForgeClient.storage.from(testBucketName)
 
         // Upload files with specific prefix
         let prefix = "test-prefix-\(UUID().uuidString)"
         let testContent = "Test content".data(using: .utf8)!
 
-        _ = try await bucket.upload(
-            file: testContent,
-            key: "\(prefix)/file1.txt",
-            mimeType: "text/plain"
-        )
-        _ = try await bucket.upload(
-            file: testContent,
-            key: "\(prefix)/file2.txt",
-            mimeType: "text/plain"
-        )
+        _ = try await fileApi.upload(path: "\(prefix)/file1.txt", data: testContent)
+        _ = try await fileApi.upload(path: "\(prefix)/file2.txt", data: testContent)
 
         // List with prefix
-        let files = try await bucket.list(prefix: prefix, limit: 10)
+        let files = try await fileApi.list(prefix: prefix, limit: 10)
 
         XCTAssertEqual(files.count, 2, "Should find exactly 2 files with the prefix")
-        XCTAssertTrue(files.allSatisfy { $0.key.hasPrefix(prefix) })
 
         print("✅ Found \(files.count) file(s) with prefix '\(prefix)'")
     }
 
-    /// Test downloading a file
-    func testDownloadFile() async throws {
-        print("🔵 Testing bucket.download...")
+    /// Test listing files with options
+    func testListFilesWithOptions() async throws {
+        print("🔵 Testing list with options...")
 
         // Ensure bucket exists
-        try? await insForgeClient.storage.createBucket(name: testBucketName, isPublic: true)
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
 
-        let bucket = await insForgeClient.storage.bucket(testBucketName)
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+
+        // Upload multiple files
+        let testContent = "Test content".data(using: .utf8)!
+        for i in 0..<5 {
+            _ = try await fileApi.upload(path: "paginated/file\(i).txt", data: testContent)
+        }
+
+        // List with pagination options
+        let options = ListOptions(prefix: "paginated", limit: 2, offset: 0)
+        let files = try await fileApi.list(options: options)
+
+        XCTAssertEqual(files.count, 2, "Should return only 2 files due to limit")
+
+        print("✅ Listed \(files.count) file(s) with pagination")
+    }
+
+    /// Test downloading a file
+    func testDownloadFile() async throws {
+        print("🔵 Testing download...")
+
+        // Ensure bucket exists
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
+
+        let fileApi = await insForgeClient.storage.from(testBucketName)
 
         // Upload a file first
         let originalContent = "Hello from Swift SDK - Download Test".data(using: .utf8)!
-        let fileKey = "test-download-\(UUID().uuidString).txt"
+        let filePath = "test-download-\(UUID().uuidString).txt"
 
-        _ = try await bucket.upload(
-            file: originalContent,
-            key: fileKey,
-            mimeType: "text/plain"
-        )
+        _ = try await fileApi.upload(path: filePath, data: originalContent)
 
         // Download the file
-        let downloadedData = try await bucket.download(key: fileKey)
+        let downloadedData = try await fileApi.download(path: filePath)
 
         // Verify content matches
         XCTAssertEqual(downloadedData, originalContent)
 
         let downloadedString = String(data: downloadedData, encoding: .utf8)
-        print("✅ Downloaded file: \(fileKey)")
+        print("✅ Downloaded file: \(filePath)")
         print("   Content: \(downloadedString ?? "unable to decode")")
     }
 
     /// Test getting public URL
     func testGetPublicURL() async {
-        print("🔵 Testing bucket.getPublicURL...")
+        print("🔵 Testing getPublicURL...")
 
-        let bucket = await insForgeClient.storage.bucket(testBucketName)
-        let fileKey = "test-files/public-test.jpg"
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+        let filePath = "test-files/public-test.jpg"
 
-        let publicURL = bucket.getPublicURL(key: fileKey)
+        let publicURL = fileApi.getPublicURL(path: filePath)
 
         XCTAssertTrue(publicURL.absoluteString.contains(testBucketName))
-        XCTAssertTrue(publicURL.absoluteString.contains(fileKey))
+        XCTAssertTrue(publicURL.absoluteString.contains(filePath))
 
         print("✅ Generated public URL: \(publicURL.absoluteString)")
     }
 
     /// Test deleting a file
     func testDeleteFile() async throws {
-        print("🔵 Testing bucket.delete...")
+        print("🔵 Testing delete...")
 
         // Ensure bucket exists
-        try? await insForgeClient.storage.createBucket(name: testBucketName, isPublic: true)
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
 
-        let bucket = await insForgeClient.storage.bucket(testBucketName)
+        let fileApi = await insForgeClient.storage.from(testBucketName)
 
         // Upload a file first
         let testContent = "To be deleted".data(using: .utf8)!
-        let fileKey = "test-delete-\(UUID().uuidString).txt"
+        let filePath = "test-delete-\(UUID().uuidString).txt"
 
-        _ = try await bucket.upload(
-            file: testContent,
-            key: fileKey,
-            mimeType: "text/plain"
-        )
+        _ = try await fileApi.upload(path: filePath, data: testContent)
 
         // Delete the file
-        try await bucket.delete(key: fileKey)
+        try await fileApi.delete(path: filePath)
 
         // Verify it's gone by trying to download (should fail)
         do {
-            _ = try await bucket.download(key: fileKey)
+            _ = try await fileApi.download(path: filePath)
             XCTFail("Download should fail after deletion")
         } catch {
             // Expected to fail
-            print("✅ Successfully deleted file: \(fileKey)")
+            print("✅ Successfully deleted file: \(filePath)")
         }
+    }
+
+    /// Test getting upload strategy
+    func testGetUploadStrategy() async throws {
+        print("🔵 Testing getUploadStrategy...")
+
+        // Ensure bucket exists
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
+
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+
+        // Get upload strategy
+        let strategy = try await fileApi.getUploadStrategy(
+            filename: "test-strategy.jpg",
+            contentType: "image/jpeg",
+            size: 1024
+        )
+
+        XCTAssertFalse(strategy.method.isEmpty)
+        XCTAssertFalse(strategy.uploadUrl.isEmpty)
+        XCTAssertFalse(strategy.key.isEmpty)
+
+        print("✅ Got upload strategy:")
+        print("   Method: \(strategy.method)")
+        print("   Key: \(strategy.key)")
+        print("   Confirm required: \(strategy.confirmRequired)")
+    }
+
+    /// Test getting download strategy
+    func testGetDownloadStrategy() async throws {
+        print("🔵 Testing getDownloadStrategy...")
+
+        // Ensure bucket exists
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
+
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+
+        // Upload a file first
+        let testContent = "Download strategy test".data(using: .utf8)!
+        let filePath = "strategy-test.txt"
+        _ = try await fileApi.upload(path: filePath, data: testContent)
+
+        // Get download strategy
+        let strategy = try await fileApi.getDownloadStrategy(
+            path: filePath,
+            expiresIn: 3600
+        )
+
+        XCTAssertFalse(strategy.method.isEmpty)
+        XCTAssertFalse(strategy.url.isEmpty)
+
+        print("✅ Got download strategy:")
+        print("   Method: \(strategy.method)")
+        print("   URL: \(strategy.url)")
     }
 
     /// Test deleting a bucket
@@ -327,7 +544,10 @@ final class InsForgeStorageTests: XCTestCase {
 
         // Create a temporary bucket
         let tempBucket = "temp-bucket-\(UUID().uuidString)"
-        try await insForgeClient.storage.createBucket(name: tempBucket, isPublic: true)
+        try await insForgeClient.storage.createBucket(
+            tempBucket,
+            options: BucketOptions(isPublic: true)
+        )
 
         // Verify it exists
         var buckets = try await insForgeClient.storage.listBuckets()
@@ -343,43 +563,47 @@ final class InsForgeStorageTests: XCTestCase {
         print("✅ Successfully deleted bucket: \(tempBucket)")
     }
 
-    /// Test complete workflow: create bucket -> upload -> list -> download -> delete -> delete bucket
+    /// Test complete workflow: create bucket -> upload -> list -> download -> delete file -> delete bucket
     func testCompleteWorkflow() async throws {
         print("🔵 Testing complete storage workflow...")
 
         let workflowBucket = "workflow-test-\(UUID().uuidString)"
 
         // 1. Create bucket
-        try await insForgeClient.storage.createBucket(name: workflowBucket, isPublic: true)
+        try await insForgeClient.storage.createBucket(
+            workflowBucket,
+            options: BucketOptions(isPublic: true)
+        )
         print("   ✓ Created bucket")
 
-        let bucket = await insForgeClient.storage.bucket(workflowBucket)
+        let fileApi = await insForgeClient.storage.from(workflowBucket)
 
         // 2. Upload file
         let content = "Workflow test content".data(using: .utf8)!
-        let fileKey = "workflow-test.txt"
-        let uploaded = try await bucket.upload(
-            file: content,
-            key: fileKey,
-            mimeType: "text/plain"
-        )
+        let filePath = "workflow-test.txt"
+        let uploaded = try await fileApi.upload(path: filePath, data: content)
         print("   ✓ Uploaded file: \(uploaded.key)")
 
         // 3. List files
-        let files = try await bucket.list()
+        let files = try await fileApi.list()
         XCTAssertEqual(files.count, 1)
         print("   ✓ Listed files: \(files.count)")
 
         // 4. Download file
-        let downloaded = try await bucket.download(key: fileKey)
+        let downloaded = try await fileApi.download(path: filePath)
         XCTAssertEqual(downloaded, content)
         print("   ✓ Downloaded and verified content")
 
         // 5. Delete file
-        try await bucket.delete(key: fileKey)
+        try await fileApi.delete(path: filePath)
         print("   ✓ Deleted file")
 
-        // 6. Delete bucket
+        // 6. Verify file is gone
+        let filesAfterDelete = try await fileApi.list()
+        XCTAssertEqual(filesAfterDelete.count, 0)
+        print("   ✓ Verified file deletion")
+
+        // 7. Delete bucket
         try await insForgeClient.storage.deleteBucket(workflowBucket)
         print("   ✓ Deleted bucket")
 

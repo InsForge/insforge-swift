@@ -22,8 +22,8 @@ class InsForgeService: ObservableObject {
         print("[TodoApp] Initializing InsForgeClient with URL: \(Config.insForgeURL)")
 
         self.client = InsForgeClient(
-            insForgeURL: url,
-            insForgeKey: Config.insForgeKey,
+            baseURL: url,
+            anonKey: Config.anonKey,
             options: InsForgeClientOptions(
                 global: InsForgeClientOptions.GlobalOptions(
                     logger: ConsoleLogger()

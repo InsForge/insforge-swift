@@ -162,6 +162,69 @@ public struct QueryBuilder: Sendable {
         return builder
     }
 
+    /// Range-based pagination (from and to are inclusive)
+    /// - Parameters:
+    ///   - from: Starting index (0-based)
+    ///   - to: Ending index (inclusive)
+    /// - Returns: QueryBuilder with range applied
+    public func range(from: Int, to: Int) -> QueryBuilder {
+        var builder = self
+        builder.queryItems.append(URLQueryItem(name: "offset", value: "\(from)"))
+        builder.queryItems.append(URLQueryItem(name: "limit", value: "\(to - from + 1)"))
+        return builder
+    }
+
+    /// Filter by pattern matching (case-sensitive)
+    /// - Parameters:
+    ///   - column: Column name to filter
+    ///   - pattern: Pattern to match (use % as wildcard)
+    /// - Returns: QueryBuilder with like filter
+    public func like(_ column: String, pattern: String) -> QueryBuilder {
+        var builder = self
+        builder.queryItems.append(URLQueryItem(name: column, value: "like.\(pattern)"))
+        return builder
+    }
+
+    /// Filter by pattern matching (case-insensitive)
+    /// - Parameters:
+    ///   - column: Column name to filter
+    ///   - pattern: Pattern to match (use % as wildcard)
+    /// - Returns: QueryBuilder with ilike filter
+    public func ilike(_ column: String, pattern: String) -> QueryBuilder {
+        var builder = self
+        builder.queryItems.append(URLQueryItem(name: column, value: "ilike.\(pattern)"))
+        return builder
+    }
+
+    /// Filter where column value is in array
+    /// - Parameters:
+    ///   - column: Column name to filter
+    ///   - values: Array of values to match
+    /// - Returns: QueryBuilder with in filter
+    public func `in`(_ column: String, values: [Any]) -> QueryBuilder {
+        var builder = self
+        let valueString = values.map { "\($0)" }.joined(separator: ",")
+        builder.queryItems.append(URLQueryItem(name: column, value: "in.(\(valueString))"))
+        return builder
+    }
+
+    /// Filter for null/boolean checks
+    /// - Parameters:
+    ///   - column: Column name to filter
+    ///   - value: Value to check (null, true, false)
+    /// - Returns: QueryBuilder with is filter
+    public func `is`(_ column: String, value: Bool?) -> QueryBuilder {
+        var builder = self
+        let valueString: String
+        if let boolValue = value {
+            valueString = boolValue ? "true" : "false"
+        } else {
+            valueString = "null"
+        }
+        builder.queryItems.append(URLQueryItem(name: column, value: "is.\(valueString)"))
+        return builder
+    }
+
     // MARK: - Execute
 
     /// Execute SELECT query

@@ -108,14 +108,14 @@ Example similarities:
 
 ```swift
 // Similar to Supabase
-let client = InsForgeClient(insForgeURL: url, apiKey: key)
+let client = InsForgeClient(baseURL: url, anonKey: key)
 let data = try await client.database.from("table").select().execute()
 
 // Similar to Supabase Auth
 let session = try await client.auth.signIn(email: email, password: password)
 
 // Similar to Supabase Storage
-let file = try await client.storage.bucket("avatars").upload(file: data)
+let file = try await client.storage.from("avatars").upload(path: "avatar.jpg", data: data)
 ```
 
 ## Platform Support
@@ -190,8 +190,8 @@ import InsForge
 
 // Initialize
 let client = InsForgeClient(
-    insForgeURL: URL(string: "https://project.insforge.com")!,
-    insForgeKey: "anon-key"
+    baseURL: URL(string: "https://project.insforge.com")!,
+    anonKey: "anon-key"
 )
 
 // Authentication
@@ -215,8 +215,8 @@ let todos: [Todo] = try await client.database
 
 // Storage
 let file = try await client.storage
-    .bucket("avatars")
-    .upload(file: imageData, fileName: "avatar.jpg", mimeType: "image/jpeg")
+    .from("avatars")
+    .upload(path: "avatar.jpg", data: imageData)
 
 // Functions
 let result = try await client.functions.invoke("hello", body: ["name": "Alice"])

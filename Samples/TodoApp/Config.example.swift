@@ -17,6 +17,6 @@ enum Config {
 
     /// Your InsForge anon/public key
     /// Get this from your InsForge dashboard (use anon key, not service role key)
-    static let insForgeKey = "your-insforge-key-here"
+    static let anonKey = "your-insforge-key-here"
 }
 

@@ -40,7 +40,7 @@ cp Config.example.swift Sources/Config.swift
 ```swift
 enum Config {
     static let insForgeURL = "https://your-project.insforge.com"  // 👈 替换这里
-    static let insForgeKey = "your-api-key-here"                       // 👈 和这里
+    static let anonKey = "your-api-key-here"                       // 👈 和这里
 }
 ```
 

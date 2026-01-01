@@ -40,8 +40,8 @@ Or add it through Xcode:
 import InsForge
 
 let client = InsForgeClient(
-    insForgeURL: URL(string: "https://your-project.insforge.com")!,
-    insForgeKey: "your-anon-key"
+    baseURL: URL(string: "https://your-project.insforge.com")!,
+    anonKey: "your-anon-key"
 )
 ```
 
@@ -117,37 +117,55 @@ try await client.database
 
 ```swift
 // Create a bucket
-try await client.storage.createBucket(name: "avatars", isPublic: true)
+try await client.storage.createBucket("avatars", options: BucketOptions(isPublic: true))
 
-// Upload a file
+// Upload a file with specific path
 let imageData = // ... your image data
 let file = try await client.storage
-    .bucket("avatars")
+    .from("avatars")
     .upload(
-        file: imageData,
-        fileName: "profile.jpg",
-        mimeType: "image/jpeg"
+        path: "users/profile.jpg",
+        data: imageData,
+        options: FileOptions(contentType: "image/jpeg")
+    )
+
+// Upload with auto-generated key
+let autoFile = try await client.storage
+    .from("avatars")
+    .upload(
+        data: imageData,
+        fileName: "profile.jpg"
     )
 
 // Download a file
 let data = try await client.storage
-    .bucket("avatars")
-    .download(key: file.key)
+    .from("avatars")
+    .download(path: file.key)
 
 // Get public URL
 let publicURL = client.storage
-    .bucket("avatars")
-    .getPublicURL(key: file.key)
+    .from("avatars")
+    .getPublicURL(path: file.key)
 
 // List files
 let files = try await client.storage
-    .bucket("avatars")
-    .list(prefix: "users/", limit: 50)
+    .from("avatars")
+    .list(options: ListOptions(prefix: "users/", limit: 50))
 
 // Delete a file
 try await client.storage
-    .bucket("avatars")
-    .delete(key: file.key)
+    .from("avatars")
+    .delete(path: file.key)
+
+// Get upload strategy (for S3 presigned URL upload)
+let uploadStrategy = try await client.storage
+    .from("avatars")
+    .getUploadStrategy(filename: "large-file.jpg", contentType: "image/jpeg", size: 10485760)
+
+// Get download strategy (for S3 presigned URL download)
+let downloadStrategy = try await client.storage
+    .from("avatars")
+    .getDownloadStrategy(path: "private/document.pdf", expiresIn: 3600)
 ```
 
 ### Functions
@@ -235,8 +253,8 @@ await client.realtime.disconnect()
 
 ```swift
 let client = InsForgeClient(
-    insForgeURL: URL(string: "https://your-project.insforge.com")!,
-    insForgeKey: "your-anon-key",
+    baseURL: URL(string: "https://your-project.insforge.com")!,
+    anonKey: "your-anon-key",
     options: InsForgeClientOptions(
         database: .init(
             encoder: customJSONEncoder,
@@ -294,6 +312,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- Documentation: [https://docs.insforge.com](https://docs.insforge.com)
-- Issues: [GitHub Issues](https://github.com/your-org/insforge-swift/issues)
-- Discord: [Join our community](https://discord.gg/insforge)
+- Documentation: [https://docs.insforge.dev](https://docs.insforge.dev)
+- Issues: [GitHub Issues](https://github.com/InsForge/insforge-swift/issues)
+- Discord: [Join our community](https://discord.gg/DvBtaEc9Jz)

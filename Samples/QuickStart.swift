@@ -9,8 +9,8 @@ struct QuickStartExample {
     static func main() async {
         // Initialize the client
         let client = InsForgeClient(
-            insForgeURL: URL(string: "https://your-project.insforge.com")!,
-            apiKey: "your-anon-key"
+            baseURL: URL(string: "https://your-project.insforge.com")!,
+            anonKey: "your-anon-key"
         )
 
         do {
@@ -75,24 +75,24 @@ struct QuickStartExample {
             print("\n=== Storage ===")
 
             // Create a bucket
-            try await client.storage.createBucket(name: "avatars", isPublic: true)
+            try await client.storage.createBucket("avatars", options: BucketOptions(isPublic: true))
             print("✅ Bucket 'avatars' created")
 
             // Upload a file
             let sampleData = "Hello, InsForge!".data(using: .utf8)!
             let uploadedFile = try await client.storage
-                .bucket("avatars")
+                .from("avatars")
                 .upload(
-                    file: sampleData,
-                    fileName: "sample.txt",
-                    mimeType: "text/plain"
+                    path: "sample.txt",
+                    data: sampleData,
+                    options: FileOptions(contentType: "text/plain")
                 )
             print("✅ File uploaded:", uploadedFile.key)
 
             // Get public URL
             let publicURL = client.storage
-                .bucket("avatars")
-                .getPublicURL(key: uploadedFile.key)
+                .from("avatars")
+                .getPublicURL(path: uploadedFile.key)
             print("✅ Public URL:", publicURL.absoluteString)
 
             // ============================================

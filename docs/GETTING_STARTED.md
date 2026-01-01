@@ -38,8 +38,8 @@ Initialize the InsForge client with your project URL and API key:
 import InsForge
 
 let client = InsForgeClient(
-    insForgeURL: URL(string: "https://your-project.insforge.com")!,
-    apiKey: "your-anon-or-service-key"
+    baseURL: URL(string: "https://your-project.insforge.com")!,
+    anonKey: "your-anon-or-service-key"
 )
 ```
 
@@ -49,8 +49,8 @@ For advanced usage, you can customize the client:
 
 ```swift
 let client = InsForgeClient(
-    insForgeURL: URL(string: "https://your-project.insforge.com")!,
-    apiKey: "your-key",
+    baseURL: URL(string: "https://your-project.insforge.com")!,
+    anonKey: "your-key",
     options: InsForgeClientOptions(
         database: .init(
             encoder: JSONEncoder(),
@@ -241,30 +241,49 @@ try await client.database
 
 ```swift
 try await client.storage.createBucket(
-    name: "avatars",
-    isPublic: true
+    "avatars",
+    options: BucketOptions(isPublic: true)
+)
+```
+
+### Update Bucket
+
+```swift
+// Update bucket visibility
+try await client.storage.updateBucket(
+    "avatars",
+    options: BucketOptions(isPublic: false)
 )
 ```
 
 ### Upload Files
 
 ```swift
-// Auto-generated key
+// Upload with specific path
 let file = try await client.storage
-    .bucket("avatars")
+    .from("avatars")
     .upload(
-        file: imageData,
-        fileName: "profile.jpg",
-        mimeType: "image/jpeg"
+        path: "users/\(userId)/avatar.jpg",
+        data: imageData,
+        options: FileOptions(contentType: "image/jpeg")
     )
 
-// Specific key
-let file = try await client.storage
-    .bucket("avatars")
+// Upload with auto-generated key
+let autoFile = try await client.storage
+    .from("avatars")
     .upload(
-        file: imageData,
-        key: "users/\(userId)/avatar.jpg",
-        mimeType: "image/jpeg"
+        data: imageData,
+        fileName: "avatar.jpg",
+        options: FileOptions(contentType: "image/jpeg")
+    )
+
+// Upload from file URL
+let fileFromURL = try await client.storage
+    .from("avatars")
+    .upload(
+        path: "documents/report.pdf",
+        fileURL: localFileURL,
+        options: FileOptions(contentType: "application/pdf")
     )
 ```
 
@@ -272,8 +291,8 @@ let file = try await client.storage
 
 ```swift
 let data = try await client.storage
-    .bucket("avatars")
-    .download(key: "users/123/avatar.jpg")
+    .from("avatars")
+    .download(path: "users/123/avatar.jpg")
 
 let image = UIImage(data: data)
 ```
@@ -282,16 +301,27 @@ let image = UIImage(data: data)
 
 ```swift
 let url = client.storage
-    .bucket("avatars")
-    .getPublicURL(key: "users/123/avatar.jpg")
+    .from("avatars")
+    .getPublicURL(path: "users/123/avatar.jpg")
 ```
 
 ### List Files
 
 ```swift
+// List all files
 let files = try await client.storage
-    .bucket("avatars")
-    .list(prefix: "users/", limit: 50, offset: 0)
+    .from("avatars")
+    .list()
+
+// List with prefix filter and pagination
+let filteredFiles = try await client.storage
+    .from("avatars")
+    .list(options: ListOptions(prefix: "users/", limit: 50, offset: 0))
+
+// Convenience method with prefix
+let userFiles = try await client.storage
+    .from("avatars")
+    .list(prefix: "users/123/", limit: 20)
 
 for file in files {
     print("\(file.key) - \(file.size) bytes")
@@ -301,9 +331,52 @@ for file in files {
 ### Delete Files
 
 ```swift
+// Delete a single file
 try await client.storage
-    .bucket("avatars")
-    .delete(key: "users/123/old-avatar.jpg")
+    .from("avatars")
+    .delete(path: "users/123/old-avatar.jpg")
+```
+
+### Upload Strategy (S3 Presigned URL)
+
+For large files or direct S3 uploads, use the upload strategy API:
+
+```swift
+// Get upload strategy
+let strategy = try await client.storage
+    .from("avatars")
+    .getUploadStrategy(
+        filename: "large-video.mp4",
+        contentType: "video/mp4",
+        size: 104857600  // 100MB
+    )
+
+// Upload directly to S3 using the presigned URL
+// ... upload to strategy.uploadUrl with strategy.fields ...
+
+// Confirm the upload if required
+if strategy.confirmRequired {
+    let confirmed = try await client.storage
+        .from("avatars")
+        .confirmUpload(
+            path: strategy.key,
+            size: 104857600,
+            contentType: "video/mp4"
+        )
+}
+```
+
+### Download Strategy (S3 Presigned URL)
+
+For private files or time-limited access:
+
+```swift
+// Get a presigned download URL (expires in 1 hour)
+let strategy = try await client.storage
+    .from("private-files")
+    .getDownloadStrategy(path: "document.pdf", expiresIn: 3600)
+
+// Use strategy.url to download the file
 ```
 
 ## Serverless Functions

@@ -13,9 +13,9 @@ InsForgeService.shared (单例模式)
     ↓
 InsForgeService.init() (InsForgeService.swift:15)
     ↓
-读取 Config.insForgeURL 和 Config.insForgeKey (Config.swift)
+读取 Config.insForgeURL 和 Config.anonKey (Config.swift)
     ↓
-调用 InsForgeClient(insForgeURL:insForgeKey:) (InsForgeClient.swift:49)
+调用 InsForgeClient(baseURL:anonKey:) (InsForgeClient.swift:49)
     ↓
 创建 InsForgeClient 实例
     ↓
@@ -63,8 +63,8 @@ class InsForgeService: ObservableObject {
 
         // 👇 在这里调用 InsForgeClient.init()
         self.client = InsForgeClient(
-            insForgeURL: url,
-            insForgeKey: Config.insForgeKey
+            baseURL: url,
+            anonKey: Config.anonKey
         )
     }
 
@@ -89,7 +89,7 @@ class InsForgeService: ObservableObject {
 ```swift
 enum Config {
     static let insForgeURL = "https://your-project.insforge.com"
-    static let insForgeKey = "your-api-key-here"
+    static let anonKey = "your-api-key-here"
 }
 ```
 
@@ -99,27 +99,27 @@ enum Config {
 
 ```swift
 public final class InsForgeClient: Sendable {
-    public let insForgeURL: URL
-    public let insForgeKey: String
+    public let baseURL: URL
+    public let anonKey: String
 
     // 👇 这是被 InsForgeService 调用的初始化方法
     public init(
-        insForgeURL: URL,
-        insForgeKey: String,
+        baseURL: URL,
+        anonKey: String,
         options: InsForgeClientOptions = .init()
     ) {
-        self.insForgeURL = insForgeURL
-        self.insForgeKey = insForgeKey
+        self.baseURL = baseURL
+        self.anonKey = anonKey
         self.options = options
 
         // 构建请求头
         var headers = options.global.headers
-        headers["apikey"] = insForgeKey
-        headers["Authorization"] = "Bearer \(insForgeKey)"
+        headers["apikey"] = anonKey
+        headers["Authorization"] = "Bearer \(anonKey)"
 
         // 立即初始化 AuthClient
         self._auth = AuthClient(
-            url: insForgeURL.appendingPathComponent("api/auth"),
+            url: baseURL.appendingPathComponent("api/auth"),
             headers: headers,
             options: options.auth
         )
@@ -152,15 +152,15 @@ public final class InsForgeClient: Sendable {
 InsForgeService.init()
     ↓
 读取 Config.insForgeURL → "https://my-app.insforge.com"
-读取 Config.insForgeKey     → "sk_live_xxxxx"
+读取 Config.anonKey     → "sk_live_xxxxx"
     ↓
 创建 InsForgeClient
-  - insForgeURL: https://my-app.insforge.com
-  - insForgeKey: sk_live_xxxxx
+  - baseURL: https://my-app.insforge.com
+  - anonKey: sk_live_xxxxx
     ↓
 InsForgeClient.init() 执行
-  - 设置 headers["apikey"] = insForgeKey
-  - 设置 headers["Authorization"] = "Bearer {insForgeKey}"
+  - 设置 headers["apikey"] = anonKey
+  - 设置 headers["Authorization"] = "Bearer {anonKey}"
   - 创建 AuthClient (立即)
     ↓
 InsForgeService.client 准备就绪
@@ -201,8 +201,8 @@ guard let url = URL(string: Config.insForgeURL) else {
 }
 
 self.client = InsForgeClient(
-    insForgeURL: url,
-    insForgeKey: Config.insForgeKey
+    baseURL: url,
+    anonKey: Config.anonKey
 )
 ```
 
@@ -233,8 +233,8 @@ public var database: DatabaseClient {
 TodoApp (应用)
     └── InsForgeService.shared (单例)
             └── client: InsForgeClient
-                    ├── insForgeURL: URL
-                    ├── insForgeKey: String
+                    ├── baseURL: URL
+                    ├── anonKey: String
                     ├── _auth: AuthClient (立即创建)
                     └── mutableState
                             ├── database: DatabaseClient? (懒加载)
@@ -257,11 +257,11 @@ private init() {
     }
 
     print("📍 InsForge URL: \(url)")
-    print("🔑 API Key: \(Config.insForgeKey.prefix(10))...")
+    print("🔑 API Key: \(Config.anonKey.prefix(10))...")
 
     self.client = InsForgeClient(
-        insForgeURL: url,
-        insForgeKey: Config.insForgeKey
+        baseURL: url,
+        anonKey: Config.anonKey
     )
 
     print("✅ InsForgeClient 初始化完成")

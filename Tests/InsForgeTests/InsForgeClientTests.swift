@@ -8,8 +8,8 @@ final class InsForgeClientTests: XCTestCase {
 
     override func setUp() async throws {
         client = InsForgeClient(
-            insForgeURL: URL(string: insforgeHost)!,
-            insForgeKey: insforgeApiKey
+            baseURL: URL(string: insforgeHost)!,
+            anonKey: insforgeApiKey
         )
     }
 
@@ -18,8 +18,8 @@ final class InsForgeClientTests: XCTestCase {
     }
 
     func testClientInitialization() {
-        XCTAssertEqual(client.insForgeURL.absoluteString, insforgeHost)
-        XCTAssertEqual(client.insForgeKey, insforgeApiKey)
+        XCTAssertEqual(client.baseURL.absoluteString, insforgeHost)
+        XCTAssertEqual(client.anonKey, insforgeApiKey)
         // Headers are private, just verify client was created
         XCTAssertNotNil(client)
     }
@@ -36,8 +36,8 @@ final class InsForgeClientTests: XCTestCase {
 
     func testCustomOptions() {
         let customClient = InsForgeClient(
-            insForgeURL: URL(string: insforgeHost)!,
-            insForgeKey: insforgeApiKey,
+            baseURL: URL(string: insforgeHost)!,
+            anonKey: insforgeApiKey,
             options: InsForgeClientOptions(
                 global: .init(
                     headers: ["X-Custom": "value"],

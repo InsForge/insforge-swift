@@ -322,8 +322,8 @@ final class InsForgeRealtimeTests: XCTestCase {
 
     func testChannelCreation() async {
         let client = InsForgeClient(
-            insForgeURL: URL(string: "http://localhost:3000")!,
-            insForgeKey: "test-key"
+            baseURL: URL(string: "http://localhost:3000")!,
+            anonKey: "test-key"
         )
 
         let channel1 = await client.realtime.channel("test-channel")
@@ -336,8 +336,8 @@ final class InsForgeRealtimeTests: XCTestCase {
 
     func testMultipleChannels() async {
         let client = InsForgeClient(
-            insForgeURL: URL(string: "http://localhost:3000")!,
-            insForgeKey: "test-key"
+            baseURL: URL(string: "http://localhost:3000")!,
+            anonKey: "test-key"
         )
 
         let channel1 = await client.realtime.channel("channel-1")

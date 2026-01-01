@@ -28,8 +28,8 @@ final class InsForgeAITests: XCTestCase {
 
     override func setUp() async throws {
         insForgeClient = InsForgeClient(
-            insForgeURL: URL(string: insForgeURL)!,
-            insForgeKey: apiKey
+            baseURL: URL(string: insForgeURL)!,
+            anonKey: apiKey
         )
         print("📍 InsForge URL: \(insForgeURL)")
     }

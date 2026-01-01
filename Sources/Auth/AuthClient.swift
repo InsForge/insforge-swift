@@ -208,6 +208,8 @@ public actor AuthClient {
         #if os(macOS)
         await NSWorkspace.shared.open(authURL)
         #elseif os(iOS) || os(tvOS)
+        // for tvOS, https://appkey.region.insforge.app/auth/callback should not respond.
+        // It is only used to capture the URL opened by the system.
         await UIApplication.shared.open(authURL)
         #endif
     }
@@ -321,6 +323,46 @@ public actor AuthClient {
         }
 
         return authResponse
+    }
+
+    // MARK: - Profile
+
+    /// Get user profile by ID (public endpoint)
+    /// - Parameter userId: The user ID to get profile for
+    /// - Returns: Profile containing user ID and profile data
+    public func getProfile(userId: String) async throws -> Profile {
+        let endpoint = url.appendingPathComponent("profiles/\(userId)")
+
+        let response = try await httpClient.execute(
+            .get,
+            url: endpoint,
+            headers: headers
+        )
+
+        let profile = try response.decode(Profile.self)
+        logger?.log("Fetched profile for user: \(userId)")
+        return profile
+    }
+
+    /// Update current user's profile
+    /// - Parameter profile: Dictionary containing profile fields to update (name, avatar_url, and any custom fields)
+    /// - Returns: Updated Profile
+    public func updateProfile(_ profile: [String: Any]) async throws -> Profile {
+        let endpoint = url.appendingPathComponent("profiles/current")
+
+        let body: [String: Any] = ["profile": profile]
+        let data = try JSONSerialization.data(withJSONObject: body)
+
+        let response = try await httpClient.execute(
+            .patch,
+            url: endpoint,
+            headers: try await getAuthHeaders().merging(["Content-Type": "application/json"]) { $1 },
+            body: data
+        )
+
+        let updatedProfile = try response.decode(Profile.self)
+        logger?.log("Updated current user's profile")
+        return updatedProfile
     }
 
     // MARK: - Password Reset
