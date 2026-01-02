@@ -258,7 +258,7 @@ public struct StorageFileApi: Sendable {
 
     // MARK: - Upload
 
-    /// Uploads a file to the bucket with a specific key.
+    /// Uploads a file to the bucket with a specific key using presigned URL flow.
     /// - Parameters:
     ///   - path: The object key (can include forward slashes for pseudo-folders).
     ///   - data: The file data to upload.
@@ -270,23 +270,34 @@ public struct StorageFileApi: Sendable {
         data: Data,
         options: FileOptions = FileOptions()
     ) async throws -> StoredFile {
-        let endpoint = url
-            .appendingPathComponent("buckets")
-            .appendingPathComponent(bucketId)
-            .appendingPathComponent("objects")
-            .appendingPathComponent(path)
+        let contentType = options.contentType ?? inferContentType(from: path)
 
-        // PUT method for upload with specific key
-        let response = try await httpClient.upload(
-            url: endpoint,
-            method: .put,
-            headers: headers,
-            file: data,
-            fileName: path,
-            mimeType: options.contentType ?? inferContentType(from: path)
+        // 1. Get upload strategy
+        let strategy = try await getUploadStrategy(
+            filename: path,
+            contentType: contentType,
+            size: data.count
         )
 
-        let storedFile = try response.decode(StoredFile.self)
+        // 2. Upload to presigned URL or direct endpoint
+        try await uploadToStrategy(strategy: strategy, data: data, contentType: contentType)
+
+        // 3. Confirm upload if required
+        if strategy.confirmRequired {
+            let storedFile = try await confirmUpload(
+                path: strategy.key,
+                size: data.count,
+                contentType: contentType
+            )
+            logger?.log("File uploaded to '\(path)' via presigned URL")
+            return storedFile
+        }
+
+        // For direct uploads without confirmation, fetch the file info
+        let files = try await list(options: ListOptions(prefix: strategy.key, limit: 1))
+        guard let storedFile = files.first else {
+            throw InsForgeError.httpError(statusCode: 404, message: "Uploaded file not found", error: nil, nextActions: nil)
+        }
         logger?.log("File uploaded to '\(path)'")
         return storedFile
     }
@@ -307,7 +318,7 @@ public struct StorageFileApi: Sendable {
         return try await upload(path: path, data: data, options: options)
     }
 
-    /// Uploads a file with auto-generated key.
+    /// Uploads a file with auto-generated key using presigned URL flow.
     /// - Parameters:
     ///   - data: The file data to upload.
     ///   - fileName: Original filename for generating the key.
@@ -319,45 +330,143 @@ public struct StorageFileApi: Sendable {
         fileName: String,
         options: FileOptions = FileOptions()
     ) async throws -> StoredFile {
-        let endpoint = url
-            .appendingPathComponent("buckets")
-            .appendingPathComponent(bucketId)
-            .appendingPathComponent("objects")
+        let contentType = options.contentType ?? inferContentType(from: fileName)
 
-        // POST method for upload with auto-generated key
-        let response = try await httpClient.upload(
-            url: endpoint,
-            method: .post,
-            headers: headers,
-            file: data,
-            fileName: fileName,
-            mimeType: options.contentType ?? inferContentType(from: fileName)
+        // 1. Get upload strategy (auto-generates key)
+        let strategy = try await getUploadStrategy(
+            filename: fileName,
+            contentType: contentType,
+            size: data.count
         )
 
-        let storedFile = try response.decode(StoredFile.self)
+        // 2. Upload to presigned URL or direct endpoint
+        try await uploadToStrategy(strategy: strategy, data: data, contentType: contentType)
+
+        // 3. Confirm upload if required
+        if strategy.confirmRequired {
+            let storedFile = try await confirmUpload(
+                path: strategy.key,
+                size: data.count,
+                contentType: contentType
+            )
+            logger?.log("File uploaded with auto-generated key via presigned URL")
+            return storedFile
+        }
+
+        // For direct uploads without confirmation, fetch the file info
+        let files = try await list(options: ListOptions(prefix: strategy.key, limit: 1))
+        guard let storedFile = files.first else {
+            throw InsForgeError.httpError(statusCode: 404, message: "Uploaded file not found", error: nil, nextActions: nil)
+        }
         logger?.log("File uploaded with auto-generated key")
         return storedFile
     }
 
+    /// Internal method to upload data to the strategy endpoint
+    private func uploadToStrategy(strategy: UploadStrategy, data: Data, contentType: String) async throws {
+        guard let uploadURL = URL(string: strategy.uploadUrl) else {
+            throw InsForgeError.invalidURL
+        }
+
+        if strategy.method == "presigned", let fields = strategy.fields {
+            // S3 presigned POST - include all fields from strategy
+            try await uploadWithPresignedFields(url: uploadURL, fields: fields, data: data, contentType: contentType)
+        } else {
+            // Direct upload
+            _ = try await httpClient.upload(
+                url: uploadURL,
+                method: .post,
+                headers: headers,
+                file: data,
+                fileName: strategy.key,
+                mimeType: contentType
+            )
+        }
+    }
+
+    /// Upload to S3 using presigned POST with form fields
+    private func uploadWithPresignedFields(url: URL, fields: [String: String], data: Data, contentType: String) async throws {
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+
+        // Add all presigned fields first (order matters, key must come before file)
+        for (key, value) in fields {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+
+        // Add file field LAST (required for S3 presigned POST)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"file\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        logger?.log("[UPLOAD-PRESIGNED] \(url)")
+
+        let session = URLSession.shared
+        let (responseData, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw InsForgeError.invalidResponse
+        }
+
+        logger?.log("Presigned upload response status: \(httpResponse.statusCode)")
+
+        // S3 returns 204 No Content on successful POST upload
+        if !(200..<300).contains(httpResponse.statusCode) {
+            let errorMessage = String(data: responseData, encoding: .utf8) ?? "Presigned upload failed"
+            throw InsForgeError.httpError(
+                statusCode: httpResponse.statusCode,
+                message: errorMessage,
+                error: nil,
+                nextActions: nil
+            )
+        }
+    }
+
     // MARK: - Download
 
-    /// Downloads a file from the bucket.
+    /// Downloads a file from the bucket using presigned URL flow.
     /// - Parameter path: The object key to download.
     /// - Returns: The file data.
     public func download(path: String) async throws -> Data {
-        let endpoint = url
-            .appendingPathComponent("buckets")
-            .appendingPathComponent(bucketId)
-            .appendingPathComponent("objects")
-            .appendingPathComponent(path)
+        // 1. Get download strategy
+        let strategy = try await getDownloadStrategy(path: path)
 
-        let response = try await httpClient.execute(
-            .get,
-            url: endpoint,
-            headers: headers
-        )
+        // 2. Download from the strategy URL (presigned or direct)
+        guard let downloadURL = URL(string: strategy.url) else {
+            throw InsForgeError.invalidURL
+        }
 
-        return response.data
+        logger?.log("[DOWNLOAD] \(downloadURL)")
+
+        let session = URLSession.shared
+        let (data, response) = try await session.data(from: downloadURL)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw InsForgeError.invalidResponse
+        }
+
+        logger?.log("Download response status: \(httpResponse.statusCode)")
+
+        if !(200..<300).contains(httpResponse.statusCode) {
+            throw InsForgeError.httpError(
+                statusCode: httpResponse.statusCode,
+                message: "Download failed",
+                error: nil,
+                nextActions: nil
+            )
+        }
+
+        return data
     }
 
     // MARK: - List
@@ -498,12 +607,13 @@ public struct StorageFileApi: Sendable {
         contentType: String? = nil,
         etag: String? = nil
     ) async throws -> StoredFile {
-        let endpoint = url
-            .appendingPathComponent("buckets")
-            .appendingPathComponent(bucketId)
-            .appendingPathComponent("objects")
-            .appendingPathComponent(path)
-            .appendingPathComponent("confirm-upload")
+        // URL encode the path to handle slashes in the key
+        // Using custom encoding to ensure / becomes %2F but doesn't get double-encoded
+        let encodedPath = path.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? path
+        let urlString = "\(url.absoluteString)/buckets/\(bucketId)/objects/\(encodedPath)/confirm-upload"
+        guard let endpoint = URL(string: urlString) else {
+            throw InsForgeError.invalidURL
+        }
 
         var body: [String: Any] = ["size": size]
         if let contentType = contentType {
