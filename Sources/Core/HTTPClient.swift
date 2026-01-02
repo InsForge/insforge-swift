@@ -91,9 +91,10 @@ public actor HTTPClient: Sendable {
         }
     }
 
-    /// Upload multipart form data
+    /// Upload multipart form data with specified HTTP method
     public func upload(
         url: URL,
+        method: HTTPMethod = .put,
         headers: [String: String] = [:],
         file: Data,
         fileName: String,
@@ -101,7 +102,7 @@ public actor HTTPClient: Sendable {
     ) async throws -> HTTPResponse {
         let boundary = UUID().uuidString
         var request = URLRequest(url: url)
-        request.httpMethod = HTTPMethod.put.rawValue
+        request.httpMethod = method.rawValue
 
         // Set headers
         var allHeaders = headers
@@ -120,7 +121,7 @@ public actor HTTPClient: Sendable {
 
         request.httpBody = body
 
-        logger?.log("[UPLOAD] \(url)")
+        logger?.log("[UPLOAD-\(method.rawValue)] \(url)")
 
         let (data, response) = try await session.data(for: request)
 

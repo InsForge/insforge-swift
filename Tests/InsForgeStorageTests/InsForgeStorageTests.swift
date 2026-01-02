@@ -246,6 +246,46 @@ final class InsForgeStorageTests: XCTestCase {
         print("✅ Uploaded file: \(uploadedFile.key)")
     }
 
+    /// Test uploading a file with specific path
+    func testUploadLocalImageFile() async throws {
+        print("🔵 Testing upload with path...")
+
+        // Ensure bucket exists
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
+
+        // Load test image from file
+        let imagePath = "/Users/fengjunwen/Projects/InsFg/insforge-swift/cpu.png"
+        let imageURL = URL(fileURLWithPath: imagePath)
+        let testContent = try Data(contentsOf: imageURL)
+        let filePath = "test-files/hello-\(UUID().uuidString).png"
+
+        // Upload file
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+        let uploadedFile = try await fileApi.upload(
+            path: filePath,
+            data: testContent,
+            options: FileOptions(contentType: "image/png")
+        )
+
+        // Verify
+        XCTAssertEqual(uploadedFile.key, filePath)
+        XCTAssertEqual(uploadedFile.bucket, testBucketName)
+
+        print("✅ Uploaded file: \(uploadedFile.key)")
+        // List files
+        let files = try await fileApi.list()
+        print("✅ Listed \(files.count) file(s) in bucket after upload")
+        for file in files.prefix(5) {
+            print("   - \(file.key)")
+        }
+        let foundFile = files.first { $0.key == uploadedFile.key }
+        XCTAssertNotNil(foundFile, "Uploaded file should be present in the file list")
+    }
+
     /// Test uploading a file with auto-generated key
     func testUploadFileAutoKey() async throws {
         print("🔵 Testing upload with auto-generated key...")

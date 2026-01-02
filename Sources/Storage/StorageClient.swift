@@ -133,8 +133,15 @@ public actor StorageClient {
 
     // MARK: - Bucket Operations
 
-    /// List all bucket names
-    /// - Returns: Array of bucket name strings
+    /// Bucket info returned from listBuckets
+    public struct BucketInfo: Codable, Sendable {
+        public let name: String
+        public let `public`: Bool
+        public let createdAt: String
+    }
+
+    /// List all buckets
+    /// - Returns: Array of bucket names
     public func listBuckets() async throws -> [String] {
         let endpoint = url.appendingPathComponent("buckets")
 
@@ -144,12 +151,23 @@ public actor StorageClient {
             headers: headers
         )
 
-        struct BucketsResponse: Codable {
-            let buckets: [String]
-        }
+        // API returns array of bucket objects: [{"name":"...", "public":true, "createdAt":"..."}]
+        let buckets = try response.decode([BucketInfo].self)
+        return buckets.map { $0.name }
+    }
 
-        let bucketsResponse = try response.decode(BucketsResponse.self)
-        return bucketsResponse.buckets
+    /// List all buckets with full info
+    /// - Returns: Array of BucketInfo objects
+    public func listBucketsWithInfo() async throws -> [BucketInfo] {
+        let endpoint = url.appendingPathComponent("buckets")
+
+        let response = try await httpClient.execute(
+            .get,
+            url: endpoint,
+            headers: headers
+        )
+
+        return try response.decode([BucketInfo].self)
     }
 
     /// Creates a new Storage bucket.
@@ -202,7 +220,7 @@ public actor StorageClient {
     /// Deletes an existing bucket.
     /// - Parameter name: The bucket name to delete.
     public func deleteBucket(_ name: String) async throws {
-        let endpoint = url.appendingPathComponent("buckets/\(name)/objects")
+        let endpoint = url.appendingPathComponent("buckets/\(name)")
 
         _ = try await httpClient.execute(
             .delete,
@@ -258,8 +276,10 @@ public struct StorageFileApi: Sendable {
             .appendingPathComponent("objects")
             .appendingPathComponent(path)
 
+        // PUT method for upload with specific key
         let response = try await httpClient.upload(
             url: endpoint,
+            method: .put,
             headers: headers,
             file: data,
             fileName: path,
@@ -304,8 +324,10 @@ public struct StorageFileApi: Sendable {
             .appendingPathComponent(bucketId)
             .appendingPathComponent("objects")
 
+        // POST method for upload with auto-generated key
         let response = try await httpClient.upload(
             url: endpoint,
+            method: .post,
             headers: headers,
             file: data,
             fileName: fileName,
