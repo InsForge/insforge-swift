@@ -7,22 +7,27 @@ import Starscream
 public actor RealtimeClient {
     private let url: URL
     private let apiKey: String
-    private let headers: [String: String]
+    private let headersProvider: LockIsolated<[String: String]>
     private let logger: (any InsForgeLogger)?
     private var socket: WebSocket?
     private var isConnected = false
     private var subscriptions: [String: [(RealtimeMessage) -> Void]] = [:]
     private var channels: [String: RealtimeChannel] = [:]
 
+    /// Get current headers (dynamically fetched to reflect auth state changes)
+    private var headers: [String: String] {
+        headersProvider.value
+    }
+
     public init(
         url: URL,
         apiKey: String,
-        headers: [String: String],
+        headersProvider: LockIsolated<[String: String]>,
         logger: (any InsForgeLogger)? = nil
     ) {
         self.url = url
         self.apiKey = apiKey
-        self.headers = headers
+        self.headersProvider = headersProvider
         self.logger = logger
     }
 

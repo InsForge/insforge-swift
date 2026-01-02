@@ -57,9 +57,8 @@ public final class InsForgeClient: Sendable {
 
         // Build shared headers with InsForge key as default Authorization
         var headers = options.global.headers
-        headers["apikey"] = anonKey
         headers["Authorization"] = "Bearer \(anonKey)"
-        headers["X-Client-Info"] = "insforge-swift/\(InsForgeClient.version)"
+        headers["User-Agent"] = "insforge-swift/\(InsForgeClient.version)"
         self._headers = LockIsolated(headers)
 
         // Initialize auth client (auth always uses API key for auth endpoints)
@@ -89,6 +88,15 @@ public final class InsForgeClient: Sendable {
                     options.global.logger?.log("Auth headers reset to InsForge key")
                 }
             }
+
+            // Check for existing session in storage and update headers if found
+            // This ensures headers are correct when app restarts with cached session
+            if let existingSession = try? await _auth.getSession() {
+                self._headers.withValue { headers in
+                    headers["Authorization"] = "Bearer \(existingSession.accessToken)"
+                }
+                options.global.logger?.log("Auth headers restored from cached session")
+            }
         }
     }
 
@@ -99,7 +107,7 @@ public final class InsForgeClient: Sendable {
             if state.database == nil {
                 state.database = DatabaseClient(
                     url: baseURL.appendingPathComponent("api/database"),
-                    headers: _headers.value,
+                    headersProvider: _headers,
                     options: options.database,
                     logger: options.global.logger
                 )
@@ -115,7 +123,7 @@ public final class InsForgeClient: Sendable {
             if state.storage == nil {
                 state.storage = StorageClient(
                     url: baseURL.appendingPathComponent("api/storage"),
-                    headers: _headers.value,
+                    headersProvider: _headers,
                     logger: options.global.logger
                 )
             }
@@ -130,7 +138,7 @@ public final class InsForgeClient: Sendable {
             if state.functions == nil {
                 state.functions = FunctionsClient(
                     url: baseURL.appendingPathComponent("functions"),
-                    headers: _headers.value,
+                    headersProvider: _headers,
                     logger: options.global.logger
                 )
             }
@@ -145,7 +153,7 @@ public final class InsForgeClient: Sendable {
             if state.ai == nil {
                 state.ai = AIClient(
                     url: baseURL.appendingPathComponent("api/ai"),
-                    headers: _headers.value,
+                    headersProvider: _headers,
                     logger: options.global.logger
                 )
             }
@@ -169,7 +177,7 @@ public final class InsForgeClient: Sendable {
                 state.realtime = RealtimeClient(
                     url: wsURL.appendingPathComponent("api/realtime"),
                     apiKey: anonKey,
-                    headers: _headers.value,
+                    headersProvider: _headers,
                     logger: options.global.logger
                 )
             }

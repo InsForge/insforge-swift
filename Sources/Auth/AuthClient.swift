@@ -181,8 +181,15 @@ public actor AuthClient {
     // MARK: - Get Session
 
     /// Get current session from storage
+    /// Also triggers auth state change listener to update shared headers
     public func getSession() async throws -> Session? {
-        try await storage.getSession()
+        let session = try await storage.getSession()
+        // Notify listener to update headers when session is retrieved
+        // This ensures headers are correct when app restarts with cached session
+        if session != nil {
+            await onAuthStateChange?(session)
+        }
+        return session
     }
 
     // MARK: - OAuth / Default Page Sign In
@@ -251,6 +258,7 @@ public actor AuthClient {
             metadata: nil,
             identities: nil,
             providerType: nil, // Provider info not available from callback
+            role: "authenticated",
             createdAt: Date(),
             updatedAt: Date()
         )

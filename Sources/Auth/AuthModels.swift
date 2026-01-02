@@ -12,20 +12,26 @@ public struct User: Codable, Sendable, Identifiable {
     public let id: String
     public let email: String
     public let name: String?
-    public let emailVerified: Bool
+    public let emailVerified: Bool?
     public let metadata: [String: AnyCodable]?
     public let identities: [Identity]?
     public let providerType: String?
-    public let createdAt: Date
-    public let updatedAt: Date
+    public let role: String?
+    public let createdAt: Date?
+    public let updatedAt: Date?
 
     enum CodingKeys: String, CodingKey {
-        case id, email, name, emailVerified, metadata, identities, providerType, createdAt, updatedAt
+        case id, email, name, emailVerified, metadata, identities, providerType, role, createdAt, updatedAt
     }
 
     // Computed property for backwards compatibility
     public var providers: [String]? {
         identities?.map { $0.provider }
+    }
+
+    // Convenience property for email verification status
+    public var isEmailVerified: Bool {
+        emailVerified ?? false
     }
 }
 

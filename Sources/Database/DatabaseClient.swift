@@ -33,7 +33,7 @@ public struct DatabaseOptions: Sendable {
 /// Database client for PostgREST-style operations
 public actor DatabaseClient {
     private let url: URL
-    private let headers: [String: String]
+    private let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -41,12 +41,12 @@ public actor DatabaseClient {
 
     public init(
         url: URL,
-        headers: [String: String],
+        headersProvider: LockIsolated<[String: String]>,
         options: DatabaseOptions = DatabaseOptions(),
         logger: (any InsForgeLogger)? = nil
     ) {
         self.url = url
-        self.headers = headers
+        self.headersProvider = headersProvider
         self.httpClient = HTTPClient(logger: logger)
         self.encoder = options.encoder
         self.decoder = options.decoder
@@ -57,7 +57,7 @@ public actor DatabaseClient {
     public func from(_ table: String) -> QueryBuilder {
         QueryBuilder(
             url: url.appendingPathComponent("records").appendingPathComponent(table),
-            headers: headers,
+            headersProvider: headersProvider,
             httpClient: httpClient,
             encoder: encoder,
             decoder: decoder
@@ -68,22 +68,27 @@ public actor DatabaseClient {
 /// Query builder for database operations
 public struct QueryBuilder: Sendable {
     private let url: URL
-    private let headers: [String: String]
+    private let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var queryItems: [URLQueryItem] = []
     private var preferHeader: String?
 
+    /// Get current headers (dynamically fetched to reflect auth state changes)
+    private var headers: [String: String] {
+        headersProvider.value
+    }
+
     init(
         url: URL,
-        headers: [String: String],
+        headersProvider: LockIsolated<[String: String]>,
         httpClient: HTTPClient,
         encoder: JSONEncoder,
         decoder: JSONDecoder
     ) {
         self.url = url
-        self.headers = headers
+        self.headersProvider = headersProvider
         self.httpClient = httpClient
         self.encoder = encoder
         self.decoder = decoder

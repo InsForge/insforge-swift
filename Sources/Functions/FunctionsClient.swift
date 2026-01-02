@@ -4,17 +4,22 @@ import InsForgeCore
 /// Functions client for invoking serverless functions
 public actor FunctionsClient {
     private let url: URL
-    private let headers: [String: String]
+    private let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
     private let logger: (any InsForgeLogger)?
 
+    /// Get current headers (dynamically fetched to reflect auth state changes)
+    private var headers: [String: String] {
+        headersProvider.value
+    }
+
     public init(
         url: URL,
-        headers: [String: String],
+        headersProvider: LockIsolated<[String: String]>,
         logger: (any InsForgeLogger)? = nil
     ) {
         self.url = url
-        self.headers = headers
+        self.headersProvider = headersProvider
         self.httpClient = HTTPClient(logger: logger)
         self.logger = logger
     }
