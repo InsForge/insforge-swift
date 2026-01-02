@@ -187,5 +187,5 @@ public final class InsForgeClient: Sendable {
 
     // MARK: - Version
 
-    static let version = "1.0.0"
+    static let version = "0.0.1"
 }
