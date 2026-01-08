@@ -23,7 +23,7 @@ final class InsForgeAuthTests: XCTestCase {
 
         XCTAssertEqual(user.id, "123e4567-e89b-12d3-a456-426614174000")
         XCTAssertEqual(user.email, "test@example.com")
-        XCTAssertTrue(user.emailVerified)
+        XCTAssertEqual(user.emailVerified, true)
         XCTAssertEqual(user.providers, ["email"])
     }
 

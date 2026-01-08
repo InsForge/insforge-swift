@@ -55,9 +55,11 @@ public final class InsForgeClient: Sendable {
         self.anonKey = anonKey
         self.options = options
 
-        // Build shared headers with InsForge key as default Authorization
+        // Build shared headers - use user-provided Authorization if present, otherwise use anonKey
         var headers = options.global.headers
-        headers["Authorization"] = "Bearer \(anonKey)"
+        if headers["Authorization"] == nil {
+            headers["Authorization"] = "Bearer \(anonKey)"
+        }
         headers["User-Agent"] = "insforge-swift/\(InsForgeClient.version)"
         self._headers = LockIsolated(headers)
 

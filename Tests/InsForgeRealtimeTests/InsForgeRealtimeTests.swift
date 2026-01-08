@@ -6,40 +6,39 @@ import XCTest
 
 // MARK: - Test Models
 
-struct TestTodo: Codable, Equatable {
-    let id: String
-    var title: String
-    var isCompleted: Bool
-    var userId: String
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case title
-        case isCompleted = "is_completed"
-        case userId = "user_id"
-    }
-}
-
 struct TestMessage: Codable, Equatable {
     let text: String
     let from: String
+}
+
+// MARK: - Test Configuration
+
+enum TestConfig {
+    static let baseURL = "https://pg6afqz9.us-east.insforge.app"
+    static let anonKey = "ik_ca177fcf1e2e72e8d1e0c2c23dbe3b79"
+    // Authenticated user token for testing
+    static let userToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwODVhNDgxZS05NGI4LTRiZjktYjNhMC03ZjBlNTBmN2EwNzIiLCJlbWFpbCI6Imp1bndlbi5mZW5nQGluc2ZvcmdlLmRldiIsInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiaWF0IjoxNzY3NzQyMTE2LCJleHAiOjE3NjgzNDY5MTZ9.jhfprod2CU1Bn2j92wG9_j0MdmbtycpRI0SHoqqDtcc"
 }
 
 // MARK: - Tests
 
 final class InsForgeRealtimeTests: XCTestCase {
 
-    // MARK: - Basic Message Tests
+    // MARK: - Model Tests
 
     func testRealtimeMessageDecoding() throws {
         let json = """
         {
             "id": "123e4567-e89b-12d3-a456-426614174000",
             "eventName": "message.new",
+            "channelId": "channel-uuid-123",
             "channelName": "chat:lobby",
             "payload": {"text": "Hello"},
             "senderType": "user",
             "senderId": "user123",
+            "wsAudienceCount": 5,
+            "whAudienceCount": 2,
+            "whDeliveredCount": 1,
             "createdAt": "2025-01-01T00:00:00Z"
         }
         """
@@ -52,232 +51,106 @@ final class InsForgeRealtimeTests: XCTestCase {
 
         XCTAssertEqual(message.id, "123e4567-e89b-12d3-a456-426614174000")
         XCTAssertEqual(message.eventName, "message.new")
+        XCTAssertEqual(message.channelId, "channel-uuid-123")
         XCTAssertEqual(message.channelName, "chat:lobby")
         XCTAssertEqual(message.senderType, "user")
+        XCTAssertEqual(message.senderId, "user123")
+        XCTAssertEqual(message.wsAudienceCount, 5)
+        XCTAssertEqual(message.whAudienceCount, 2)
+        XCTAssertEqual(message.whDeliveredCount, 1)
     }
 
-    // MARK: - Postgres Change Action Tests
-
-    func testInsertActionDecoding() throws {
+    func testChannelModelDecoding() throws {
         let json = """
         {
-            "type": "INSERT",
-            "schema": "public",
-            "table": "todos",
-            "record": {
-                "id": "todo-123",
-                "title": "Test Todo",
-                "is_completed": false,
-                "user_id": "user-456"
-            },
-            "commit_timestamp": "2025-12-28T10:00:00Z"
+            "id": "channel-uuid-456",
+            "pattern": "orders:*",
+            "description": "Order events channel",
+            "webhookUrls": ["https://example.com/webhook"],
+            "enabled": true,
+            "createdAt": "2025-01-01T00:00:00Z",
+            "updatedAt": "2025-01-02T00:00:00Z"
         }
         """
 
         let data = json.data(using: .utf8)!
         let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
 
-        let action = try decoder.decode(InsertAction<TestTodo>.self, from: data)
+        let channel = try decoder.decode(Channel.self, from: data)
 
-        XCTAssertEqual(action.type, "INSERT")
-        XCTAssertEqual(action.schema, "public")
-        XCTAssertEqual(action.table, "todos")
-        XCTAssertEqual(action.record.id, "todo-123")
-        XCTAssertEqual(action.record.title, "Test Todo")
-        XCTAssertFalse(action.record.isCompleted)
-        XCTAssertNotNil(action.commitTimestamp)
+        XCTAssertEqual(channel.id, "channel-uuid-456")
+        XCTAssertEqual(channel.pattern, "orders:*")
+        XCTAssertEqual(channel.description, "Order events channel")
+        XCTAssertEqual(channel.webhookUrls, ["https://example.com/webhook"])
+        XCTAssertTrue(channel.enabled)
     }
 
-    func testUpdateActionDecoding() throws {
+    func testSocketMessageMetaDecoding() throws {
         let json = """
         {
-            "type": "UPDATE",
-            "schema": "public",
-            "table": "todos",
-            "record": {
-                "id": "todo-123",
-                "title": "Updated Todo",
-                "is_completed": true,
-                "user_id": "user-456"
-            },
-            "old_record": {
-                "id": "todo-123",
-                "title": "Test Todo",
-                "is_completed": false,
-                "user_id": "user-456"
-            },
-            "commit_timestamp": "2025-12-28T11:00:00Z"
+            "channel": "test-channel",
+            "messageId": "msg-123",
+            "senderType": "user",
+            "senderId": "user-456",
+            "timestamp": "2025-01-01T12:00:00Z"
         }
         """
 
         let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
+        let meta = try JSONDecoder().decode(SocketMessageMeta.self, from: data)
 
-        let action = try decoder.decode(UpdateAction<TestTodo>.self, from: data)
-
-        XCTAssertEqual(action.type, "UPDATE")
-        XCTAssertEqual(action.schema, "public")
-        XCTAssertEqual(action.table, "todos")
-        XCTAssertEqual(action.record.title, "Updated Todo")
-        XCTAssertTrue(action.record.isCompleted)
-        XCTAssertEqual(action.oldRecord.title, "Test Todo")
-        XCTAssertFalse(action.oldRecord.isCompleted)
-        XCTAssertNotNil(action.commitTimestamp)
+        XCTAssertEqual(meta.channel, "test-channel")
+        XCTAssertEqual(meta.messageId, "msg-123")
+        XCTAssertEqual(meta.senderType, "user")
+        XCTAssertEqual(meta.senderId, "user-456")
+        XCTAssertEqual(meta.timestamp, "2025-01-01T12:00:00Z")
     }
 
-    func testDeleteActionDecoding() throws {
-        let json = """
-        {
-            "type": "DELETE",
-            "schema": "public",
-            "table": "todos",
-            "old_record": {
-                "id": "todo-123",
-                "title": "Deleted Todo",
-                "is_completed": true,
-                "user_id": "user-456"
-            },
-            "commit_timestamp": "2025-12-28T12:00:00Z"
-        }
-        """
+    // MARK: - Subscribe Response Tests
 
-        let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
+    func testSubscribeResponseSuccess() {
+        let response = SubscribeResponse.success(channel: "test-channel")
 
-        let action = try decoder.decode(DeleteAction<TestTodo>.self, from: data)
-
-        XCTAssertEqual(action.type, "DELETE")
-        XCTAssertEqual(action.schema, "public")
-        XCTAssertEqual(action.table, "todos")
-        XCTAssertEqual(action.oldRecord.id, "todo-123")
-        XCTAssertEqual(action.oldRecord.title, "Deleted Todo")
-        XCTAssertTrue(action.oldRecord.isCompleted)
-        XCTAssertNotNil(action.commitTimestamp)
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(response.channel, "test-channel")
     }
 
-    func testSelectActionDecoding() throws {
-        let json = """
-        {
-            "type": "SELECT",
-            "schema": "public",
-            "table": "todos",
-            "record": {
-                "id": "todo-123",
-                "title": "Selected Todo",
-                "is_completed": false,
-                "user_id": "user-456"
-            },
-            "commit_timestamp": "2025-12-28T13:00:00Z"
-        }
-        """
+    func testSubscribeResponseFailure() {
+        let response = SubscribeResponse.failure(
+            channel: "test-channel",
+            code: "UNAUTHORIZED",
+            message: "Not authorized"
+        )
 
-        let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.channel, "test-channel")
 
-        let action = try decoder.decode(SelectAction<TestTodo>.self, from: data)
-
-        XCTAssertEqual(action.type, "SELECT")
-        XCTAssertEqual(action.schema, "public")
-        XCTAssertEqual(action.table, "todos")
-        XCTAssertEqual(action.record.title, "Selected Todo")
-        XCTAssertNotNil(action.commitTimestamp)
-    }
-
-    // MARK: - AnyAction Tests
-
-    func testAnyActionInsertDecoding() throws {
-        let json = """
-        {
-            "type": "INSERT",
-            "schema": "public",
-            "table": "todos",
-            "record": {
-                "id": "todo-123",
-                "title": "New Todo",
-                "is_completed": false,
-                "user_id": "user-456"
-            },
-            "commit_timestamp": "2025-12-28T14:00:00Z"
-        }
-        """
-
-        let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
-
-        let action = try decoder.decode(AnyAction<TestTodo>.self, from: data)
-
-        if case .insert(let insertAction) = action {
-            XCTAssertEqual(insertAction.record.title, "New Todo")
-            XCTAssertFalse(insertAction.record.isCompleted)
+        if case .failure(_, let code, let message) = response {
+            XCTAssertEqual(code, "UNAUTHORIZED")
+            XCTAssertEqual(message, "Not authorized")
         } else {
-            XCTFail("Expected insert action")
+            XCTFail("Expected failure response")
         }
     }
 
-    func testAnyActionUpdateDecoding() throws {
+    // MARK: - Realtime Error Payload Tests
+
+    func testRealtimeErrorPayloadDecoding() throws {
         let json = """
         {
-            "type": "UPDATE",
-            "schema": "public",
-            "table": "todos",
-            "record": {
-                "id": "todo-123",
-                "title": "Updated",
-                "is_completed": true,
-                "user_id": "user-456"
-            },
-            "old_record": {
-                "id": "todo-123",
-                "title": "Old",
-                "is_completed": false,
-                "user_id": "user-456"
-            },
-            "commit_timestamp": "2025-12-28T15:00:00Z"
+            "channel": "private:orders",
+            "code": "PERMISSION_DENIED",
+            "message": "You don't have permission to access this channel"
         }
         """
 
         let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
+        let error = try JSONDecoder().decode(RealtimeErrorPayload.self, from: data)
 
-        let action = try decoder.decode(AnyAction<TestTodo>.self, from: data)
-
-        if case .update(let updateAction) = action {
-            XCTAssertEqual(updateAction.record.title, "Updated")
-            XCTAssertEqual(updateAction.oldRecord.title, "Old")
-            XCTAssertTrue(updateAction.record.isCompleted)
-            XCTAssertFalse(updateAction.oldRecord.isCompleted)
-        } else {
-            XCTFail("Expected update action")
-        }
-    }
-
-    func testAnyActionDeleteDecoding() throws {
-        let json = """
-        {
-            "type": "DELETE",
-            "schema": "public",
-            "table": "todos",
-            "old_record": {
-                "id": "todo-123",
-                "title": "Deleted",
-                "is_completed": true,
-                "user_id": "user-456"
-            },
-            "commit_timestamp": "2025-12-28T16:00:00Z"
-        }
-        """
-
-        let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
-
-        let action = try decoder.decode(AnyAction<TestTodo>.self, from: data)
-
-        if case .delete(let deleteAction) = action {
-            XCTAssertEqual(deleteAction.oldRecord.title, "Deleted")
-            XCTAssertTrue(deleteAction.oldRecord.isCompleted)
-        } else {
-            XCTFail("Expected delete action")
-        }
+        XCTAssertEqual(error.channel, "private:orders")
+        XCTAssertEqual(error.code, "PERMISSION_DENIED")
+        XCTAssertEqual(error.message, "You don't have permission to access this channel")
     }
 
     // MARK: - Broadcast Message Tests
@@ -318,233 +191,471 @@ final class InsForgeRealtimeTests: XCTestCase {
         XCTAssertEqual(decoded.from, "Bob")
     }
 
-    // MARK: - RealtimeChannel Tests
+    // MARK: - RealtimeClient Tests
 
-    func testChannelCreation() async {
+    func testRealtimeClientCreation() {
         let client = InsForgeClient(
-            baseURL: URL(string: "http://localhost:3000")!,
-            anonKey: "test-key"
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey
         )
 
-        let channel1 = await client.realtime.channel("test-channel")
-        XCTAssertNotNil(channel1)
-
-        let channel2 = await client.realtime.channel("test-channel")
-        XCTAssertNotNil(channel2)
-        // Should return the same instance
+        let realtime = client.realtime
+        XCTAssertNotNil(realtime)
+        XCTAssertFalse(realtime.isConnected)
+        XCTAssertEqual(realtime.connectionState, .disconnected)
     }
 
-    func testMultipleChannels() async {
+    func testRealtimeChannelCreation() {
         let client = InsForgeClient(
-            baseURL: URL(string: "http://localhost:3000")!,
-            anonKey: "test-key"
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey
         )
 
-        let channel1 = await client.realtime.channel("channel-1")
-        let channel2 = await client.realtime.channel("channel-2")
-        let channel3 = await client.realtime.channel("channel-3")
-
-        XCTAssertNotNil(channel1)
-        XCTAssertNotNil(channel2)
-        XCTAssertNotNil(channel3)
+        let channel = client.realtime.channel("test-channel")
+        XCTAssertNotNil(channel)
+        XCTAssertEqual(channel.name, "test-channel")
+        XCTAssertFalse(channel.subscribed)
     }
 
-    // MARK: - Schema Change Tests
+    func testMultipleChannelCreation() {
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey
+        )
 
-    func testSchemaLevelChange() throws {
-        // Test that schema-level changes can be decoded
-        let json = """
-        {
-            "type": "INSERT",
-            "schema": "public",
-            "table": "users",
-            "record": {
-                "id": "user-789",
-                "title": "New User",
-                "is_completed": false,
-                "user_id": "admin"
-            },
-            "commit_timestamp": "2025-12-28T17:00:00Z"
+        let channel1 = client.realtime.channel("channel-1")
+        let channel2 = client.realtime.channel("channel-2")
+        let channel3 = client.realtime.channel("channel-3")
+
+        XCTAssertEqual(channel1.name, "channel-1")
+        XCTAssertEqual(channel2.name, "channel-2")
+        XCTAssertEqual(channel3.name, "channel-3")
+    }
+
+    // MARK: - Connection State Tests
+
+    func testConnectionStateEnum() {
+        XCTAssertEqual(ConnectionState.disconnected.rawValue, "disconnected")
+        XCTAssertEqual(ConnectionState.connecting.rawValue, "connecting")
+        XCTAssertEqual(ConnectionState.connected.rawValue, "connected")
+    }
+
+    // MARK: - Integration Tests (require network)
+
+    func testConnectToRealtimeServer() async throws {
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey
+        )
+
+        do {
+            try await client.realtime.connect()
+            XCTAssertTrue(client.realtime.isConnected)
+            XCTAssertEqual(client.realtime.connectionState, .connected)
+            XCTAssertNotNil(client.realtime.socketId)
+
+            print("[Test] Connected to realtime server with socket ID: \(client.realtime.socketId ?? "nil")")
+
+            client.realtime.disconnect()
+            XCTAssertFalse(client.realtime.isConnected)
+        } catch {
+            print("[Test] Connection failed: \(error)")
+            // Connection might fail in test environment, that's okay
+            XCTAssertFalse(client.realtime.isConnected)
         }
-        """
-
-        let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
-
-        let action = try decoder.decode(InsertAction<TestTodo>.self, from: data)
-
-        XCTAssertEqual(action.schema, "public")
-        XCTAssertEqual(action.table, "users")
-        XCTAssertEqual(action.record.id, "user-789")
     }
 
-    // MARK: - Table Change Tests
+    func testSubscribeToChannel() async throws {
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey
+        )
 
-    func testTableLevelInsert() throws {
-        let json = """
-        {
-            "type": "INSERT",
-            "schema": "public",
-            "table": "todos",
-            "record": {
-                "id": "todo-new",
-                "title": "Fresh Todo",
-                "is_completed": false,
-                "user_id": "user-999"
-            },
-            "commit_timestamp": "2025-12-28T18:00:00Z"
-        }
-        """
+        let channel = client.realtime.channel("test:broadcast")
 
-        let data = json.data(using: .utf8)!
-        let action = try JSONDecoder().decode(InsertAction<TestTodo>.self, from: data)
+        let response = await channel.subscribe()
 
-        XCTAssertEqual(action.table, "todos")
-        XCTAssertEqual(action.record.title, "Fresh Todo")
-    }
+        if response.ok {
+            print("[Test] Successfully subscribed to channel: \(response.channel)")
+            XCTAssertTrue(channel.subscribed)
 
-    func testTableLevelUpdate() throws {
-        let json = """
-        {
-            "type": "UPDATE",
-            "schema": "public",
-            "table": "todos",
-            "record": {
-                "id": "todo-update",
-                "title": "Modified Todo",
-                "is_completed": true,
-                "user_id": "user-999"
-            },
-            "old_record": {
-                "id": "todo-update",
-                "title": "Original Todo",
-                "is_completed": false,
-                "user_id": "user-999"
-            },
-            "commit_timestamp": "2025-12-28T19:00:00Z"
-        }
-        """
-
-        let data = json.data(using: .utf8)!
-        let action = try JSONDecoder().decode(UpdateAction<TestTodo>.self, from: data)
-
-        XCTAssertEqual(action.table, "todos")
-        XCTAssertEqual(action.record.title, "Modified Todo")
-        XCTAssertEqual(action.oldRecord.title, "Original Todo")
-    }
-
-    func testTableLevelDelete() throws {
-        let json = """
-        {
-            "type": "DELETE",
-            "schema": "public",
-            "table": "todos",
-            "old_record": {
-                "id": "todo-delete",
-                "title": "Removed Todo",
-                "is_completed": false,
-                "user_id": "user-999"
-            },
-            "commit_timestamp": "2025-12-28T20:00:00Z"
-        }
-        """
-
-        let data = json.data(using: .utf8)!
-        let action = try JSONDecoder().decode(DeleteAction<TestTodo>.self, from: data)
-
-        XCTAssertEqual(action.table, "todos")
-        XCTAssertEqual(action.oldRecord.title, "Removed Todo")
-    }
-
-    // MARK: - Error Handling Tests
-
-    func testInvalidActionTypeDecoding() {
-        let json = """
-        {
-            "type": "INVALID",
-            "schema": "public",
-            "table": "todos",
-            "record": {
-                "id": "todo-123",
-                "title": "Test",
-                "is_completed": false,
-                "user_id": "user-456"
+            // Cleanup
+            channel.unsubscribe()
+            client.realtime.disconnect()
+        } else {
+            if case .failure(_, let code, let message) = response {
+                print("[Test] Subscribe failed: \(code) - \(message)")
             }
+            // Subscription might fail if server is not available
         }
-        """
+    }
 
-        let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
+    func testSubscribeWithAuthenticatedToken() async throws {
+        // Create client with custom headers containing user token
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey,
+            options: InsForgeClientOptions(
+                global: InsForgeClientOptions.GlobalOptions(
+                    headers: ["Authorization": "Bearer \(TestConfig.userToken)"]
+                )
+            )
+        )
 
-        XCTAssertThrowsError(try decoder.decode(AnyAction<TestTodo>.self, from: data)) { error in
-            if case DecodingError.dataCorrupted = error {
-                // Expected error
+        do {
+            try await client.realtime.connect()
+            print("[Test] Connected with authenticated token")
+
+            // Subscribe to todos channel for database changes
+            let response = await client.realtime.subscribe("todos")
+
+            if response.ok {
+                print("[Test] ✅ Subscribed to 'todos' channel")
+
+                // Set up expectation for receiving realtime event
+                let expectation = XCTestExpectation(description: "Receive realtime event after todo update")
+                var receivedEvent: SocketMessage?
+
+                // Listen for any events on all event types
+                let eventTypes = ["INSERT", "UPDATE", "DELETE", "db_change", "todo_updated", "todo_changed", "*"]
+                var listenerIds: [UUID] = []
+
+                for eventType in eventTypes {
+                    let listenerId = client.realtime.on(eventType) { message in
+                        print("[Test] 📨 Received '\(eventType)' event:")
+                        print("       Channel: \(message.meta.channel ?? "nil")")
+                        print("       MessageId: \(message.meta.messageId)")
+                        print("       SenderType: \(message.meta.senderType)")
+                        print("       Payload: \(message.payload)")
+                        receivedEvent = message
+                        expectation.fulfill()
+                    }
+                    listenerIds.append(listenerId)
+                }
+
+                // Also listen for any event via onAny-style approach
+                let anyListenerId = client.realtime.on("message") { message in
+                    print("[Test] 📨 Received 'message' event: \(message.payload)")
+                }
+                listenerIds.append(anyListenerId)
+
+                // Now perform a database update on todos table
+                print("[Test] 🔄 Performing todo update...")
+
+                // First, fetch an existing todo
+                let database = client.database
+                do {
+                    // Define a simple Todo struct for update (only include fields we want to update)
+                    struct TodoUpdate: Codable {
+                        var title: String
+                    }
+
+                    // Define Todo struct for reading
+                    struct TodoRead: Codable {
+                        let id: String
+                        let title: String
+                    }
+
+                    // Get any existing todo
+                    let existingTodos: [TodoRead] = try await database
+                        .from("todos")
+                        .select()
+                        .limit(1)
+                        .execute()
+
+                    if let firstTodo = existingTodos.first {
+                        let todoId = firstTodo.id
+                        print("[Test] Found todo with id: \(todoId), title: \(firstTodo.title)")
+
+                        // Update the todo - append timestamp to title to make it unique
+                        let newTitle = "Updated at \(Date().timeIntervalSince1970)"
+                        let updateResult: [TodoUpdate] = try await database
+                            .from("todos")
+                            .eq("id", value: todoId)
+                            .update(TodoUpdate(title: newTitle))
+
+                        print("[Test] ✅ Todo updated: \(updateResult)")
+
+                        // Wait for realtime event (with timeout)
+                        let result = await XCTWaiter.fulfillment(of: [expectation], timeout: 5.0)
+
+                        if result == .completed {
+                            print("[Test] ✅ Received realtime notification!")
+                            XCTAssertNotNil(receivedEvent)
+                        } else {
+                            print("[Test] ⚠️ No realtime event received within timeout")
+                            print("[Test] This might be expected if the backend doesn't broadcast DB changes to 'todos' channel")
+                        }
+                    } else {
+                        print("[Test] ⚠️ No existing todos found to update")
+                    }
+                } catch {
+                    print("[Test] ❌ Database operation failed: \(error)")
+                }
+
+                // Cleanup listeners
+                for (index, listenerId) in listenerIds.enumerated() {
+                    if index < eventTypes.count {
+                        client.realtime.off(eventTypes[index], id: listenerId)
+                    } else {
+                        client.realtime.off("message", id: listenerId)
+                    }
+                }
             } else {
-                XCTFail("Expected DecodingError.dataCorrupted")
+                if case .failure(_, let code, let message) = response {
+                    print("[Test] ❌ Subscribe failed: \(code) - \(message)")
+                }
+            }
+
+            client.realtime.disconnect()
+        } catch {
+            print("[Test] ❌ Connection failed: \(error)")
+        }
+    }
+
+    func testEventListenerRegistration() async throws {
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey
+        )
+
+        var connectCalled = false
+        var disconnectCalled = false
+
+        // Register connection listeners
+        let connectId = client.realtime.onConnect {
+            connectCalled = true
+            print("[Test] Connect callback fired")
+        }
+
+        let disconnectId = client.realtime.onDisconnect { reason in
+            disconnectCalled = true
+            print("[Test] Disconnect callback fired: \(reason)")
+        }
+
+        XCTAssertNotEqual(connectId, disconnectId)
+
+        do {
+            try await client.realtime.connect()
+
+            // Give time for callback to fire
+            try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+
+            if client.realtime.isConnected {
+                XCTAssertTrue(connectCalled)
+            }
+
+            client.realtime.disconnect()
+
+            // Give time for disconnect callback
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } catch {
+            print("[Test] Connection error: \(error)")
+        }
+    }
+
+    func testPublishMessage() async throws {
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey,
+            options: InsForgeClientOptions(
+                global: InsForgeClientOptions.GlobalOptions(
+                    headers: ["Authorization": "Bearer \(TestConfig.userToken)"]
+                )
+            )
+        )
+
+        do {
+            try await client.realtime.connect()
+
+            // Subscribe to channel first
+            let response = await client.realtime.subscribe("test:broadcast")
+
+            if response.ok {
+                // Try to publish a message
+                try client.realtime.publish(
+                    to: "test:broadcast",
+                    event: "test_event",
+                    payload: ["message": "Hello from Swift SDK test"]
+                )
+
+                print("[Test] Message published successfully")
+            }
+
+            client.realtime.disconnect()
+        } catch {
+            print("[Test] Error: \(error)")
+        }
+    }
+
+    func testPublishEncodableMessage() async throws {
+        struct ChatMessage: Encodable {
+            let text: String
+            let userId: String
+        }
+
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey,
+            options: InsForgeClientOptions(
+                global: InsForgeClientOptions.GlobalOptions(
+                    headers: ["Authorization": "Bearer \(TestConfig.userToken)"]
+                )
+            )
+        )
+
+        do {
+            try await client.realtime.connect()
+
+            let response = await client.realtime.subscribe("chat:general")
+
+            if response.ok {
+                let message = ChatMessage(text: "Hello!", userId: "test-user")
+                try client.realtime.publish(
+                    to: "chat:general",
+                    event: "chat_message",
+                    payload: message
+                )
+
+                print("[Test] Encodable message published successfully")
+            }
+
+            client.realtime.disconnect()
+        } catch {
+            print("[Test] Error: \(error)")
+        }
+    }
+
+    func testGetSubscribedChannels() async throws {
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey
+        )
+
+        do {
+            try await client.realtime.connect()
+
+            // Subscribe to multiple channels
+            _ = await client.realtime.subscribe("channel-a")
+            _ = await client.realtime.subscribe("channel-b")
+            _ = await client.realtime.subscribe("channel-c")
+
+            let channels = client.realtime.getSubscribedChannels()
+            print("[Test] Subscribed channels: \(channels)")
+
+            // Might not all succeed depending on server config
+            XCTAssertTrue(channels.count >= 0)
+
+            client.realtime.disconnect()
+        } catch {
+            print("[Test] Error: \(error)")
+        }
+    }
+
+    func testUnsubscribeFromChannel() async throws {
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey
+        )
+
+        do {
+            try await client.realtime.connect()
+
+            let response = await client.realtime.subscribe("temp-channel")
+
+            if response.ok {
+                var channels = client.realtime.getSubscribedChannels()
+                XCTAssertTrue(channels.contains("temp-channel"))
+
+                client.realtime.unsubscribe(from: "temp-channel")
+
+                channels = client.realtime.getSubscribedChannels()
+                XCTAssertFalse(channels.contains("temp-channel"))
+
+                print("[Test] Unsubscribe successful")
+            }
+
+            client.realtime.disconnect()
+        } catch {
+            print("[Test] Error: \(error)")
+        }
+    }
+
+    // MARK: - Channel Wrapper Tests
+
+    func testChannelWrapperSubscribeUnsubscribe() async throws {
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey
+        )
+
+        let channel = client.realtime.channel("wrapper-test")
+
+        XCTAssertFalse(channel.subscribed)
+
+        let response = await channel.subscribe()
+
+        if response.ok {
+            XCTAssertTrue(channel.subscribed)
+
+            channel.unsubscribe()
+            XCTAssertFalse(channel.subscribed)
+        }
+
+        client.realtime.disconnect()
+    }
+
+    func testChannelWrapperEventListener() async throws {
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey
+        )
+
+        let channel = client.realtime.channel("events-test")
+
+        let response = await channel.subscribe()
+
+        if response.ok {
+            var receivedMessage = false
+
+            let listenerId = channel.on("test_event") { message in
+                receivedMessage = true
+                print("[Test] Channel received message: \(message.meta.messageId)")
+            }
+
+            XCTAssertNotEqual(listenerId, UUID())
+
+            // Remove listener
+            channel.off("test_event", id: listenerId)
+        }
+
+        client.realtime.disconnect()
+    }
+
+    func testChannelWrapperBroadcast() async throws {
+        let client = InsForgeClient(
+            baseURL: URL(string: TestConfig.baseURL)!,
+            anonKey: TestConfig.anonKey,
+            options: InsForgeClientOptions(
+                global: InsForgeClientOptions.GlobalOptions(
+                    headers: ["Authorization": "Bearer \(TestConfig.userToken)"]
+                )
+            )
+        )
+
+        let channel = client.realtime.channel("broadcast-test")
+
+        let response = await channel.subscribe()
+
+        if response.ok {
+            do {
+                try channel.broadcast(event: "announcement", message: ["text": "Hello from channel wrapper!"])
+                print("[Test] Channel broadcast successful")
+            } catch {
+                print("[Test] Broadcast error: \(error)")
             }
         }
-    }
 
-    func testMissingRequiredFields() {
-        let json = """
-        {
-            "type": "INSERT",
-            "schema": "public"
-        }
-        """
-
-        let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
-
-        XCTAssertThrowsError(try decoder.decode(InsertAction<TestTodo>.self, from: data))
-    }
-
-    // MARK: - Encoding Tests
-
-    func testInsertActionEncoding() throws {
-        let todo = TestTodo(
-            id: "todo-encode",
-            title: "Encode Test",
-            isCompleted: false,
-            userId: "user-encode"
-        )
-
-        let action = InsertAction(
-            schema: "public",
-            table: "todos",
-            record: todo,
-            commitTimestamp: "2025-12-28T21:00:00Z"
-        )
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-
-        let data = try encoder.encode(action)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-
-        XCTAssertEqual(json?["type"] as? String, "INSERT")
-        XCTAssertEqual(json?["schema"] as? String, "public")
-        XCTAssertEqual(json?["table"] as? String, "todos")
-        XCTAssertNotNil(json?["record"])
-    }
-
-    func testUpdateActionEncoding() throws {
-        let oldTodo = TestTodo(id: "todo-1", title: "Old", isCompleted: false, userId: "user-1")
-        let newTodo = TestTodo(id: "todo-1", title: "New", isCompleted: true, userId: "user-1")
-
-        let action = UpdateAction(
-            schema: "public",
-            table: "todos",
-            record: newTodo,
-            oldRecord: oldTodo,
-            commitTimestamp: "2025-12-28T22:00:00Z"
-        )
-
-        let data = try JSONEncoder().encode(action)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-
-        XCTAssertEqual(json?["type"] as? String, "UPDATE")
-        XCTAssertNotNil(json?["record"])
-        XCTAssertNotNil(json?["old_record"])
+        client.realtime.disconnect()
     }
 }

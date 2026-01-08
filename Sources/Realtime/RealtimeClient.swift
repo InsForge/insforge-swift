@@ -180,8 +180,7 @@ public final class RealtimeClient: @unchecked Sendable {
         let config: SocketIOClientConfiguration = [
             .log(false),
             .compress,
-            .forceWebsockets(true),
-            .connectParams(["token": authToken])
+            .forceWebsockets(true)
         ]
 
         manager = SocketManager(socketURL: url, config: config)
@@ -195,6 +194,9 @@ public final class RealtimeClient: @unchecked Sendable {
         setupEventHandlers(socket)
 
         // Connect and wait for result
+        // Use connect(withPayload:) to pass auth token - this maps to socket.io's auth option
+        let authPayload = ["token": authToken]
+
         return try await withCheckedThrowingContinuation { [weak self] continuation in
             var resumed = false
 
@@ -220,7 +222,7 @@ public final class RealtimeClient: @unchecked Sendable {
                 continuation.resume(throwing: error)
             }
 
-            socket.connect()
+            socket.connect(withPayload: authPayload)
             self?.logger?.log("Connecting to realtime server at \(self?.url.absoluteString ?? "")")
         }
     }
