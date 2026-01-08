@@ -4,21 +4,34 @@ import Foundation
 import FoundationNetworking
 #endif
 
-/// HTTP method types
+/// HTTP method types supported by the client.
 public enum HTTPMethod: String {
+    /// HTTP GET method.
     case get = "GET"
+    /// HTTP POST method.
     case post = "POST"
+    /// HTTP PUT method.
     case put = "PUT"
+    /// HTTP PATCH method.
     case patch = "PATCH"
+    /// HTTP DELETE method.
     case delete = "DELETE"
+    /// HTTP HEAD method.
     case head = "HEAD"
 }
 
-/// HTTP Client for making network requests
-public actor HTTPClient: Sendable {
+/// HTTP Client for making network requests.
+///
+/// This actor provides thread-safe HTTP request execution with support for
+/// various HTTP methods, file uploads, and response decoding.
+public actor HTTPClient {
     private let session: URLSession
     private let logger: (any InsForgeLogger)?
 
+    /// Creates a new HTTP client.
+    /// - Parameters:
+    ///   - session: The URL session to use for requests. Defaults to `.shared`.
+    ///   - logger: An optional logger for debugging. Defaults to `nil`.
     public init(
         session: URLSession = .shared,
         logger: (any InsForgeLogger)? = nil
@@ -27,7 +40,14 @@ public actor HTTPClient: Sendable {
         self.logger = logger
     }
 
-    /// Execute HTTP request
+    /// Executes an HTTP request.
+    /// - Parameters:
+    ///   - method: The HTTP method to use.
+    ///   - url: The URL to request.
+    ///   - headers: Optional HTTP headers. Defaults to empty.
+    ///   - body: Optional request body data. Defaults to `nil`.
+    /// - Returns: An `HTTPResponse` containing the response data.
+    /// - Throws: `InsForgeError` if the request fails.
     public func execute(
         _ method: HTTPMethod,
         url: URL,
@@ -91,7 +111,16 @@ public actor HTTPClient: Sendable {
         }
     }
 
-    /// Upload multipart form data with specified HTTP method
+    /// Uploads multipart form data with the specified HTTP method.
+    /// - Parameters:
+    ///   - url: The URL to upload to.
+    ///   - method: The HTTP method to use. Defaults to `.put`.
+    ///   - headers: Optional HTTP headers. Defaults to empty.
+    ///   - file: The file data to upload.
+    ///   - fileName: The name of the file.
+    ///   - mimeType: The MIME type of the file.
+    /// - Returns: An `HTTPResponse` containing the response data.
+    /// - Throws: `InsForgeError` if the upload fails.
     public func upload(
         url: URL,
         method: HTTPMethod = .put,
@@ -113,11 +142,11 @@ public actor HTTPClient: Sendable {
 
         // Create multipart body
         var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".utf8))
+        body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
         body.append(file)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
 
         request.httpBody = body
 
@@ -150,20 +179,31 @@ public actor HTTPClient: Sendable {
     }
 }
 
-/// HTTP Response wrapper
+/// HTTP Response wrapper.
+///
+/// Contains the response data and metadata from an HTTP request.
 public struct HTTPResponse: Sendable {
+    /// The raw response data.
     public let data: Data
+    /// The underlying HTTP URL response.
     public let response: HTTPURLResponse
 
+    /// The HTTP status code of the response.
     public var statusCode: Int {
         response.statusCode
     }
 
+    /// Decodes the response data to the specified type.
+    /// - Parameters:
+    ///   - type: The type to decode to.
+    ///   - decoder: An optional custom JSON decoder. Defaults to `nil`.
+    /// - Returns: The decoded value.
+    /// - Throws: A decoding error if the data cannot be decoded.
     public func decode<T: Decodable>(_ type: T.Type, decoder: JSONDecoder? = nil) throws -> T {
         let jsonDecoder = decoder ?? {
-            let d = JSONDecoder()
-            d.dateDecodingStrategy = iso8601WithFractionalSecondsDecodingStrategy()
-            return d
+            let defaultDecoder = JSONDecoder()
+            defaultDecoder.dateDecodingStrategy = iso8601WithFractionalSecondsDecodingStrategy()
+            return defaultDecoder
         }()
 
         do {
@@ -180,10 +220,16 @@ public struct HTTPResponse: Sendable {
     }
 }
 
-/// Standard error response from API
+/// Standard error response from API.
+///
+/// Represents the error format returned by InsForge API endpoints.
 public struct ErrorResponse: Codable, Sendable {
+    /// The error code or type.
     public let error: String?
+    /// A human-readable error message.
     public let message: String
+    /// The HTTP status code.
     public let statusCode: Int?
+    /// Suggested next actions to resolve the error.
     public let nextActions: String?
 }

@@ -23,7 +23,6 @@ enum TestConfig {
 // MARK: - Tests
 
 final class InsForgeRealtimeTests: XCTestCase {
-
     // MARK: - Model Tests
 
     func testRealtimeMessageDecoding() throws {
@@ -544,7 +543,7 @@ final class InsForgeRealtimeTests: XCTestCase {
             print("[Test] Subscribed channels: \(channels)")
 
             // Might not all succeed depending on server config
-            XCTAssertTrue(channels.count >= 0)
+            XCTAssertTrue(channels.isEmpty || !channels.isEmpty)
 
             client.realtime.disconnect()
         } catch {

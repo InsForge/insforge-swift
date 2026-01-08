@@ -619,7 +619,8 @@ public struct StorageFileApi: Sendable {
     ) async throws -> StoredFile {
         // URL encode the path to handle slashes in the key
         // Using custom encoding to ensure / becomes %2F but doesn't get double-encoded
-        let encodedPath = path.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? path
+        let allowedChars = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
+        let encodedPath = path.addingPercentEncoding(withAllowedCharacters: allowedChars) ?? path
         let urlString = "\(url.absoluteString)/buckets/\(bucketId)/objects/\(encodedPath)/confirm-upload"
         guard let endpoint = URL(string: urlString) else {
             throw InsForgeError.invalidURL

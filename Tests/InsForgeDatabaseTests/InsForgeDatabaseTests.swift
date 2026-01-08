@@ -40,7 +40,6 @@ struct User: Codable, Equatable {
 // MARK: - Tests
 
 final class InsForgeDatabaseTests: XCTestCase {
-
     // MARK: - Setup
 
     private func createTestClient() -> InsForgeClient {

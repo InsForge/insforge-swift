@@ -47,6 +47,8 @@ let package = Package(
     dependencies: [
         // Socket.IO client for Realtime
         .package(url: "https://github.com/socketio/socket.io-client-swift.git", from: "16.0.0"),
+        // Swift DocC Plugin for documentation generation
+        .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
     ],
     targets: [
         // Core helpers and utilities

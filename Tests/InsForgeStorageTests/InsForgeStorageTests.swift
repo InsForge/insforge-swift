@@ -257,8 +257,8 @@ final class InsForgeStorageTests: XCTestCase {
             options: BucketOptions(isPublic: true)
         )
 
-        // Load test image from file
-        let imagePath = "/Users/fengjunwen/Projects/InsFg/insforge-swift/cpu.png"
+        // Load test image from file (relative to Tests directory)
+        let imagePath = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("cpu.png").path
         let imageURL = URL(fileURLWithPath: imagePath)
         let testContent = try Data(contentsOf: imageURL)
         let filePath = "test-files/hello-\(UUID().uuidString).png"
@@ -426,8 +426,8 @@ final class InsForgeStorageTests: XCTestCase {
 
         // Upload multiple files
         let testContent = "Test content".data(using: .utf8)!
-        for i in 0..<5 {
-            _ = try await fileApi.upload(path: "paginated/file\(i).txt", data: testContent)
+        for index in 0..<5 {
+            _ = try await fileApi.upload(path: "paginated/file\(index).txt", data: testContent)
         }
 
         // List with pagination options
