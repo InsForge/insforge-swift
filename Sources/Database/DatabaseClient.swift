@@ -1,6 +1,30 @@
 import Foundation
 import InsForgeCore
 
+/// Count algorithm options for row counting in queries.
+///
+/// These options correspond to PostgreSQL's different counting strategies,
+/// each with different performance characteristics.
+public enum CountOption: String, Sendable {
+    /// Exact count using `COUNT(*)`. Most accurate but slowest for large tables.
+    case exact
+    /// Planned count using PostgreSQL's query planner estimate. Fast but may be inaccurate.
+    case planned
+    /// Estimated count using statistics. Fastest but least accurate.
+    case estimated
+}
+
+/// Result containing both data and count from a query.
+public struct QueryResult<T: Decodable>: Sendable where T: Sendable {
+    /// The queried data records.
+    public let data: [T]
+    /// The total count of matching records (if count option was specified).
+    public let count: Int?
+}
+
+/// Empty record type used for count-only queries.
+private struct EmptyRecord: Decodable, Sendable {}
+
 /// Configuration options for the database client.
 ///
 /// Allows customization of JSON encoding and decoding behavior.
@@ -96,6 +120,8 @@ public struct QueryBuilder: Sendable {
     private let decoder: JSONDecoder
     private var queryItems: [URLQueryItem] = []
     private var preferHeader: String?
+    private var countOption: CountOption?
+    private var head: Bool = false
 
     /// Get current headers (dynamically fetched to reflect auth state changes)
     private var headers: [String: String] {
@@ -119,11 +145,32 @@ public struct QueryBuilder: Sendable {
     // MARK: - Query Modifiers
 
     /// Selects specific columns to return.
-    /// - Parameter columns: Comma-separated column names, or "*" for all columns.
+    /// - Parameters:
+    ///   - columns: Comma-separated column names, or "*" for all columns.
+    ///   - head: If `true`, returns only the count without data (uses HEAD request).
+    ///   - count: The count algorithm to use for including total row count in response.
     /// - Returns: A new `QueryBuilder` with the select clause applied.
-    public func select(_ columns: String = "*") -> QueryBuilder {
+    public func select(
+        _ columns: String = "*",
+        head: Bool = false,
+        count: CountOption? = nil
+    ) -> QueryBuilder {
         var builder = self
-        builder.queryItems.append(URLQueryItem(name: "select", value: columns))
+        // Remove whitespaces except when quoted (following Supabase pattern)
+        var quoted = false
+        let cleanedColumns = columns.compactMap { char -> String? in
+            if char.isWhitespace, !quoted {
+                return nil
+            }
+            if char == "\"" {
+                quoted = !quoted
+            }
+            return String(char)
+        }.joined()
+
+        builder.queryItems.append(URLQueryItem(name: "select", value: cleanedColumns))
+        builder.head = head
+        builder.countOption = count
         return builder
     }
 
@@ -292,6 +339,14 @@ public struct QueryBuilder: Sendable {
     /// - Returns: An array of decoded objects.
     /// - Throws: `InsForgeError` if the query fails.
     public func execute<T: Decodable>() async throws -> [T] {
+        let result: QueryResult<T> = try await executeWithCount()
+        return result.data
+    }
+
+    /// Executes a SELECT query and returns results with optional count.
+    /// - Returns: A `QueryResult` containing data and optional count.
+    /// - Throws: `InsForgeError` if the query fails.
+    public func executeWithCount<T: Decodable & Sendable>() async throws -> QueryResult<T> {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.queryItems = queryItems
 
@@ -299,13 +354,53 @@ public struct QueryBuilder: Sendable {
             throw InsForgeError.invalidURL
         }
 
+        var requestHeaders = headers
+        if let countOpt = countOption {
+            requestHeaders["Prefer"] = "count=\(countOpt.rawValue)"
+        }
+
+        let method: HTTPMethod = head ? .head : .get
         let response = try await httpClient.execute(
-            .get,
+            method,
             url: requestURL,
-            headers: headers
+            headers: requestHeaders
         )
 
-        return try decoder.decode([T].self, from: response.data)
+        // Parse count from Content-Range header if present
+        // Format: "0-24/100" or "*/100" for HEAD requests
+        var totalCount: Int?
+        if let contentRange = response.response.value(forHTTPHeaderField: "Content-Range") {
+            if let slashIndex = contentRange.lastIndex(of: "/") {
+                let countString = String(contentRange[contentRange.index(after: slashIndex)...])
+                totalCount = Int(countString)
+            }
+        }
+
+        // For HEAD requests, return empty data array
+        if head {
+            return QueryResult(data: [], count: totalCount)
+        }
+
+        let data = try decoder.decode([T].self, from: response.data)
+        return QueryResult(data: data, count: totalCount)
+    }
+
+    /// Executes a count-only query (HEAD request).
+    /// - Parameter countOption: The count algorithm to use. Defaults to `.exact`.
+    /// - Returns: The total count of matching records.
+    /// - Throws: `InsForgeError` if the query fails.
+    public func count(_ countOption: CountOption = .exact) async throws -> Int {
+        var builder = self
+        builder.head = true
+        builder.countOption = countOption
+
+        // Ensure select is set
+        if !builder.queryItems.contains(where: { $0.name == "select" }) {
+            builder.queryItems.append(URLQueryItem(name: "select", value: "*"))
+        }
+
+        let result: QueryResult<EmptyRecord> = try await builder.executeWithCount()
+        return result.count ?? 0
     }
 
     // MARK: - Insert

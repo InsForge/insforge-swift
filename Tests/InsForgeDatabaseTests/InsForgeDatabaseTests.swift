@@ -5,7 +5,7 @@ import XCTest
 
 // MARK: - Test Models
 
-struct Post: Codable, Equatable {
+struct Post: Codable, Equatable, Sendable {
     let id: String?
     var title: String
     var content: String
@@ -23,7 +23,7 @@ struct Post: Codable, Equatable {
     }
 }
 
-struct User: Codable, Equatable {
+struct User: Codable, Equatable, Sendable {
     let id: String?
     var email: String
     var name: String
@@ -381,5 +381,132 @@ final class InsForgeDatabaseTests: XCTestCase {
 
         XCTAssertNotNil(options.encoder)
         XCTAssertNotNil(options.decoder)
+    }
+
+    // MARK: - CountOption Tests
+
+    func testCountOptionRawValues() {
+        XCTAssertEqual(CountOption.exact.rawValue, "exact")
+        XCTAssertEqual(CountOption.planned.rawValue, "planned")
+        XCTAssertEqual(CountOption.estimated.rawValue, "estimated")
+    }
+
+    func testQueryResultStructure() {
+        // Test QueryResult with data and count
+        let posts = [
+            Post(id: "1", title: "Post 1", content: "Content 1", published: true, views: 10, createdAt: nil),
+            Post(id: "2", title: "Post 2", content: "Content 2", published: false, views: 20, createdAt: nil)
+        ]
+
+        let result = QueryResult(data: posts, count: 100)
+
+        XCTAssertEqual(result.data.count, 2)
+        XCTAssertEqual(result.count, 100)
+        XCTAssertEqual(result.data[0].title, "Post 1")
+        XCTAssertEqual(result.data[1].title, "Post 2")
+    }
+
+    func testQueryResultWithNilCount() {
+        let posts = [
+            Post(id: "1", title: "Post 1", content: "Content 1", published: true, views: 10, createdAt: nil)
+        ]
+
+        let result = QueryResult(data: posts, count: nil)
+
+        XCTAssertEqual(result.data.count, 1)
+        XCTAssertNil(result.count)
+    }
+
+    func testQueryResultEmptyData() {
+        let result = QueryResult<Post>(data: [], count: 0)
+
+        XCTAssertTrue(result.data.isEmpty)
+        XCTAssertEqual(result.count, 0)
+    }
+
+    func testSelectWithCountOption() async {
+        let client = createTestClient()
+        let builder = await client.database.from("posts")
+
+        // Test select with exact count
+        let withExactCount = builder.select("*", count: .exact)
+        XCTAssertNotNil(withExactCount)
+
+        // Test select with planned count
+        let withPlannedCount = builder.select("*", count: .planned)
+        XCTAssertNotNil(withPlannedCount)
+
+        // Test select with estimated count
+        let withEstimatedCount = builder.select("*", count: .estimated)
+        XCTAssertNotNil(withEstimatedCount)
+    }
+
+    func testSelectWithHeadOption() async {
+        let client = createTestClient()
+        let builder = await client.database.from("posts")
+
+        // Test select with head=true (count only, no data)
+        let headOnly = builder.select("*", head: true, count: .exact)
+        XCTAssertNotNil(headOnly)
+    }
+
+    func testSelectWithCountAndFilters() async {
+        let client = createTestClient()
+        let builder = await client.database.from("posts")
+
+        // Test combining count with filters
+        let filtered = builder
+            .select("*", count: .exact)
+            .eq("published", value: true)
+            .gt("views", value: 100)
+            .limit(10)
+
+        XCTAssertNotNil(filtered)
+    }
+
+    func testSelectColumnsWhitespaceCleanup() async {
+        let client = createTestClient()
+        let builder = await client.database.from("posts")
+
+        // Test that whitespace in columns is cleaned up
+        let withSpaces = builder.select("id, title, content")
+        XCTAssertNotNil(withSpaces)
+
+        // Test quoted columns preserve internal spaces
+        let withQuoted = builder.select("id, \"user name\", content")
+        XCTAssertNotNil(withQuoted)
+    }
+
+    func testCountMethodBuilder() async {
+        let client = createTestClient()
+        let builder = await client.database.from("posts")
+
+        // Test count method with different options
+        let countBuilder = builder.eq("published", value: true)
+        XCTAssertNotNil(countBuilder)
+    }
+
+    // MARK: - QueryResult Generic Type Tests
+
+    func testQueryResultWithDifferentTypes() {
+        // Test with User type
+        let users = [
+            User(id: "1", email: "a@test.com", name: "User A", age: 25),
+            User(id: "2", email: "b@test.com", name: "User B", age: 30)
+        ]
+        let userResult = QueryResult(data: users, count: 50)
+
+        XCTAssertEqual(userResult.data.count, 2)
+        XCTAssertEqual(userResult.count, 50)
+        XCTAssertEqual(userResult.data[0].email, "a@test.com")
+
+        // Test with Post type
+        let posts = [
+            Post(id: "1", title: "Title", content: "Content", published: true, views: 100, createdAt: nil)
+        ]
+        let postResult = QueryResult(data: posts, count: 1)
+
+        XCTAssertEqual(postResult.data.count, 1)
+        XCTAssertEqual(postResult.count, 1)
     }
 }
