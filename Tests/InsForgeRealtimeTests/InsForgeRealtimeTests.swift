@@ -17,6 +17,7 @@ enum TestConfig {
     static let baseURL = "https://pg6afqz9.us-east.insforge.app"
     static let anonKey = "ik_ca177fcf1e2e72e8d1e0c2c23dbe3b79"
     // Authenticated user token for testing
+    // swiftlint:disable:next line_length
     static let userToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwODVhNDgxZS05NGI4LTRiZjktYjNhMC03ZjBlNTBmN2EwNzIiLCJlbWFpbCI6Imp1bndlbi5mZW5nQGluc2ZvcmdlLmRldiIsInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiaWF0IjoxNzY3NzQyMTE2LCJleHAiOjE3NjgzNDY5MTZ9.jhfprod2CU1Bn2j92wG9_j0MdmbtycpRI0SHoqqDtcc"
 }
 
