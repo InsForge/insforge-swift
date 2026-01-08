@@ -9,6 +9,8 @@ struct TodoListView: View {
     @State private var errorMessage: String?
     @State private var showingAddTodo = false
     @State private var selectedTodo: Todo?
+    @State private var realtimeUnsubscribe: (() -> Void)?
+    @State private var isRealtimeConnected = false
 
     var body: some View {
         NavigationSplitView {
@@ -68,6 +70,19 @@ struct TodoListView: View {
                     Text("\(todos.count) total")
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    // Realtime connection indicator
+                    if isRealtimeConnected {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 8, height: 8)
+                            Text("Live")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                        }
+                    }
+
                     Spacer()
                     Button(action: { Task { await loadTodos() } }) {
                         Image(systemName: "arrow.clockwise")
@@ -113,6 +128,13 @@ struct TodoListView: View {
         .task {
             await requestNotificationPermission()
             await loadTodos()
+            await subscribeToRealtime()
+        }
+        .onDisappear {
+            // Cleanup realtime subscription when view disappears
+            realtimeUnsubscribe?()
+            realtimeUnsubscribe = nil
+            isRealtimeConnected = false
         }
     }
 
@@ -124,6 +146,34 @@ struct TodoListView: View {
         } catch {
             print("Failed to get notification permission: \(error)")
         }
+    }
+
+    private func subscribeToRealtime() async {
+        realtimeUnsubscribe = await service.subscribeToTodoChanges(
+            onTodoInserted: { newTodo in
+                // Add new todo at the beginning if not already present
+                if !todos.contains(where: { $0.id == newTodo.id }) {
+                    todos.insert(newTodo, at: 0)
+                    print("[TodoListView] Realtime: New todo added - \(newTodo.title)")
+                }
+            },
+            onTodoUpdated: { updatedTodo in
+                // Update existing todo
+                if let index = todos.firstIndex(where: { $0.id == updatedTodo.id }) {
+                    todos[index] = updatedTodo
+                    print("[TodoListView] Realtime: Todo updated - \(updatedTodo.title)")
+                }
+            },
+            onTodoDeleted: { todoId in
+                // Remove deleted todo
+                todos.removeAll { $0.id == todoId }
+                if selectedTodo?.id == todoId {
+                    selectedTodo = nil
+                }
+                print("[TodoListView] Realtime: Todo deleted - \(todoId)")
+            }
+        )
+        isRealtimeConnected = true
     }
 
     private func loadTodos() async {
@@ -205,6 +255,12 @@ struct TodoListView: View {
     }
 
     private func signOut() async {
+        // Cleanup realtime subscription
+        realtimeUnsubscribe?()
+        realtimeUnsubscribe = nil
+        isRealtimeConnected = false
+        service.disconnectRealtime()
+
         do {
             try await service.signOut()
             todos = []

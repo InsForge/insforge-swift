@@ -83,8 +83,13 @@ public final class RealtimeChannelWrapper: @unchecked Sendable {
     @discardableResult
     public func on(_ event: String, callback: @escaping (SocketMessage) -> Void) -> UUID {
         let id = client.on(event) { [weak self] message in
+            guard let self = self else { return }
             // Only forward messages for this channel
-            if message.meta.channel == self?.channelName {
+            // Server may send channel as "realtime:{channelName}" or just "{channelName}"
+            let messageChannel = message.meta.channel ?? ""
+            let matches = messageChannel == self.channelName ||
+                          messageChannel == "realtime:\(self.channelName)"
+            if matches {
                 callback(message)
             }
         }
