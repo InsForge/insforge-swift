@@ -1,12 +1,13 @@
 import Foundation
 import InsForgeCore
+import Logging
 
 /// Functions client for invoking serverless functions
 public actor FunctionsClient {
     private let url: URL
     private let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
-    private let logger: (any InsForgeLogger)?
+    private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Get current headers (dynamically fetched to reflect auth state changes)
     private var headers: [String: String] {
@@ -15,13 +16,11 @@ public actor FunctionsClient {
 
     public init(
         url: URL,
-        headersProvider: LockIsolated<[String: String]>,
-        logger: (any InsForgeLogger)? = nil
+        headersProvider: LockIsolated<[String: String]>
     ) {
         self.url = url
         self.headersProvider = headersProvider
-        self.httpClient = HTTPClient(logger: logger)
-        self.logger = logger
+        self.httpClient = HTTPClient()
     }
 
     /// Invoke a function
@@ -36,12 +35,28 @@ public actor FunctionsClient {
             requestBody = try JSONSerialization.data(withJSONObject: body)
         }
 
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let requestBody = requestBody, let bodyString = String(data: requestBody, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
         let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: requestBody
         )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
 
         return try response.decode(T.self)
     }
@@ -56,12 +71,28 @@ public actor FunctionsClient {
         let encoder = JSONEncoder()
         let requestBody = try encoder.encode(body)
 
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: requestBody, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
         let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: requestBody
         )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
 
         let decoder = JSONDecoder()
         return try decoder.decode(O.self, from: response.data)
@@ -76,13 +107,27 @@ public actor FunctionsClient {
             requestBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        _ = try await httpClient.execute(
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let requestBody = requestBody, let bodyString = String(data: requestBody, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
+        let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: requestBody
         )
 
-        logger?.log("Function '\(slug)' invoked")
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8), !responseString.isEmpty {
+            logger.trace("Response body: \(responseString)")
+        }
     }
 }

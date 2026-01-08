@@ -1,5 +1,6 @@
 import Foundation
 import InsForgeCore
+import Logging
 
 // MARK: - Options
 
@@ -105,7 +106,7 @@ public actor StorageClient {
     private let url: URL
     private let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
-    private let logger: (any InsForgeLogger)?
+    private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Get current headers (dynamically fetched to reflect auth state changes)
     private var headers: [String: String] {
@@ -114,13 +115,11 @@ public actor StorageClient {
 
     public init(
         url: URL,
-        headersProvider: LockIsolated<[String: String]>,
-        logger: (any InsForgeLogger)? = nil
+        headersProvider: LockIsolated<[String: String]>
     ) {
         self.url = url
         self.headersProvider = headersProvider
-        self.httpClient = HTTPClient(logger: logger)
-        self.logger = logger
+        self.httpClient = HTTPClient()
     }
 
     /// Get a file API reference for a bucket
@@ -131,8 +130,7 @@ public actor StorageClient {
             bucketId: id,
             url: url,
             headersProvider: headersProvider,
-            httpClient: httpClient,
-            logger: logger
+            httpClient: httpClient
         )
     }
 
@@ -150,14 +148,26 @@ public actor StorageClient {
     public func listBuckets() async throws -> [String] {
         let endpoint = url.appendingPathComponent("buckets")
 
+        // Log request
+        logger.debug("GET \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
+
         let response = try await httpClient.execute(
             .get,
             url: endpoint,
             headers: headers
         )
 
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
         // API returns array of bucket objects: [{"name":"...", "public":true, "createdAt":"..."}]
         let buckets = try response.decode([BucketInfo].self)
+        logger.debug("Listed \(buckets.count) bucket(s)")
         return buckets.map { $0.name }
     }
 
@@ -166,13 +176,26 @@ public actor StorageClient {
     public func listBucketsWithInfo() async throws -> [BucketInfo] {
         let endpoint = url.appendingPathComponent("buckets")
 
+        // Log request
+        logger.debug("GET \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
+
         let response = try await httpClient.execute(
             .get,
             url: endpoint,
             headers: headers
         )
 
-        return try response.decode([BucketInfo].self)
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let buckets = try response.decode([BucketInfo].self)
+        logger.debug("Listed \(buckets.count) bucket(s) with info")
+        return buckets
     }
 
     /// Creates a new Storage bucket.
@@ -188,15 +211,30 @@ public actor StorageClient {
         ]
 
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
-        _ = try await httpClient.execute(
+        // Log request
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
+        let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
-        logger?.log("Bucket '\(name)' created")
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8), !responseString.isEmpty {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        logger.debug("Bucket '\(name)' created")
     }
 
     /// Updates a Storage bucket's visibility.
@@ -211,15 +249,30 @@ public actor StorageClient {
         ]
 
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
-        _ = try await httpClient.execute(
+        // Log request
+        logger.debug("PATCH \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
+        let response = try await httpClient.execute(
             .patch,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
-        logger?.log("Bucket '\(name)' updated")
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8), !responseString.isEmpty {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        logger.debug("Bucket '\(name)' updated")
     }
 
     /// Deletes an existing bucket.
@@ -227,13 +280,24 @@ public actor StorageClient {
     public func deleteBucket(_ name: String) async throws {
         let endpoint = url.appendingPathComponent("buckets/\(name)")
 
-        _ = try await httpClient.execute(
+        // Log request
+        logger.debug("DELETE \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
+
+        let response = try await httpClient.execute(
             .delete,
             url: endpoint,
             headers: headers
         )
 
-        logger?.log("Bucket '\(name)' deleted")
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8), !responseString.isEmpty {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        logger.debug("Bucket '\(name)' deleted")
     }
 }
 
@@ -245,7 +309,7 @@ public struct StorageFileApi: Sendable {
     private let url: URL
     private let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
-    private let logger: (any InsForgeLogger)?
+    private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Get current headers (dynamically fetched to reflect auth state changes)
     private var headers: [String: String] {
@@ -256,14 +320,12 @@ public struct StorageFileApi: Sendable {
         bucketId: String,
         url: URL,
         headersProvider: LockIsolated<[String: String]>,
-        httpClient: HTTPClient,
-        logger: (any InsForgeLogger)?
+        httpClient: HTTPClient
     ) {
         self.bucketId = bucketId
         self.url = url
         self.headersProvider = headersProvider
         self.httpClient = httpClient
-        self.logger = logger
     }
 
     // MARK: - Upload
@@ -299,7 +361,7 @@ public struct StorageFileApi: Sendable {
                 size: data.count,
                 contentType: contentType
             )
-            logger?.log("File uploaded to '\(path)' via presigned URL")
+            logger.debug("File uploaded to '\(path)' via presigned URL")
             return storedFile
         }
 
@@ -308,7 +370,7 @@ public struct StorageFileApi: Sendable {
         guard let storedFile = files.first else {
             throw InsForgeError.httpError(statusCode: 404, message: "Uploaded file not found", error: nil, nextActions: nil)
         }
-        logger?.log("File uploaded to '\(path)'")
+        logger.debug("File uploaded to '\(path)'")
         return storedFile
     }
 
@@ -359,7 +421,7 @@ public struct StorageFileApi: Sendable {
                 size: data.count,
                 contentType: contentType
             )
-            logger?.log("File uploaded with auto-generated key via presigned URL")
+            logger.debug("File uploaded with auto-generated key via presigned URL")
             return storedFile
         }
 
@@ -368,7 +430,7 @@ public struct StorageFileApi: Sendable {
         guard let storedFile = files.first else {
             throw InsForgeError.httpError(statusCode: 404, message: "Uploaded file not found", error: nil, nextActions: nil)
         }
-        logger?.log("File uploaded with auto-generated key")
+        logger.debug("File uploaded with auto-generated key")
         return storedFile
     }
 
@@ -419,7 +481,7 @@ public struct StorageFileApi: Sendable {
 
         request.httpBody = body
 
-        logger?.log("[UPLOAD-PRESIGNED] \(url)")
+        logger.debug("[UPLOAD-PRESIGNED] \(url)")
 
         let session = URLSession.shared
         let (responseData, response) = try await session.data(for: request)
@@ -428,7 +490,7 @@ public struct StorageFileApi: Sendable {
             throw InsForgeError.invalidResponse
         }
 
-        logger?.log("Presigned upload response status: \(httpResponse.statusCode)")
+        logger.debug("Presigned upload response status: \(httpResponse.statusCode)")
 
         // S3 returns 204 No Content on successful POST upload
         if !(200..<300).contains(httpResponse.statusCode) {
@@ -456,7 +518,7 @@ public struct StorageFileApi: Sendable {
             throw InsForgeError.invalidURL
         }
 
-        logger?.log("[DOWNLOAD] \(downloadURL)")
+        logger.debug("[DOWNLOAD] \(downloadURL)")
 
         let session = URLSession.shared
         let (data, response) = try await session.data(from: downloadURL)
@@ -465,7 +527,7 @@ public struct StorageFileApi: Sendable {
             throw InsForgeError.invalidResponse
         }
 
-        logger?.log("Download response status: \(httpResponse.statusCode)")
+        logger.debug("Download response status: \(httpResponse.statusCode)")
 
         if !(200..<300).contains(httpResponse.statusCode) {
             throw InsForgeError.httpError(
@@ -508,13 +570,25 @@ public struct StorageFileApi: Sendable {
             throw InsForgeError.invalidURL
         }
 
+        // Log request
+        logger.debug("GET \(requestURL.absoluteString)")
+        logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
+
         let response = try await httpClient.execute(
             .get,
             url: requestURL,
             headers: headers
         )
 
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
         let listResponse = try response.decode(ListResponse.self)
+        logger.debug("Listed \(listResponse.data.count) file(s) in bucket '\(bucketId)'")
         return listResponse.data
     }
 
@@ -543,13 +617,24 @@ public struct StorageFileApi: Sendable {
             .appendingPathComponent("objects")
             .appendingPathComponent(path)
 
-        _ = try await httpClient.execute(
+        // Log request
+        logger.debug("DELETE \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
+
+        let response = try await httpClient.execute(
             .delete,
             url: endpoint,
             headers: headers
         )
 
-        logger?.log("File '\(path)' deleted from bucket '\(bucketId)'")
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8), !responseString.isEmpty {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        logger.debug("File '\(path)' deleted from bucket '\(bucketId)'")
     }
 
     // MARK: - Public URL
@@ -592,15 +677,32 @@ public struct StorageFileApi: Sendable {
         }
 
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
 
         let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
-        return try response.decode(UploadStrategy.self)
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let strategy = try response.decode(UploadStrategy.self)
+        logger.debug("Got upload strategy: \(strategy.method) for '\(filename)'")
+        return strategy
     }
 
     /// Confirms a presigned upload.
@@ -635,15 +737,32 @@ public struct StorageFileApi: Sendable {
         }
 
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
 
         let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
-        return try response.decode(StoredFile.self)
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let storedFile = try response.decode(StoredFile.self)
+        logger.debug("Upload confirmed for '\(path)'")
+        return storedFile
     }
 
     // MARK: - Download Strategy
@@ -666,15 +785,32 @@ public struct StorageFileApi: Sendable {
 
         let body: [String: Any] = ["expiresIn": expiresIn]
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
 
         let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
-        return try response.decode(DownloadStrategy.self)
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let strategy = try response.decode(DownloadStrategy.self)
+        logger.debug("Got download strategy: \(strategy.method) for '\(path)'")
+        return strategy
     }
 
     // MARK: - Private Helpers

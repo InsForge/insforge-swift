@@ -2,6 +2,7 @@ import Foundation
 import InsForgeCore
 import InsForgeAuth
 import SocketIO
+import Logging
 
 // MARK: - Connection State
 
@@ -188,7 +189,7 @@ public final class RealtimeClient: @unchecked Sendable {
     private let url: URL
     private let apiKey: String
     private let headersProvider: LockIsolated<[String: String]>
-    private let logger: (any InsForgeLogger)?
+    private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     private var manager: SocketManager?
     private var socket: SocketIOClient?
@@ -206,13 +207,11 @@ public final class RealtimeClient: @unchecked Sendable {
     public init(
         url: URL,
         apiKey: String,
-        headersProvider: LockIsolated<[String: String]>,
-        logger: (any InsForgeLogger)? = nil
+        headersProvider: LockIsolated<[String: String]>
     ) {
         self.url = url
         self.apiKey = apiKey
         self.headersProvider = headersProvider
-        self.logger = logger
     }
 
     // MARK: - Connection State
@@ -243,7 +242,7 @@ public final class RealtimeClient: @unchecked Sendable {
     public func connect() async throws {
         // Already connected
         if socket?.status == .connected {
-            logger?.log("[Realtime] Already connected, skipping connect()")
+            logger.debug("Already connected, skipping connect()")
             return
         }
 
@@ -251,8 +250,8 @@ public final class RealtimeClient: @unchecked Sendable {
         let headers = headersProvider.value
         let authToken = headers["Authorization"]?.replacingOccurrences(of: "Bearer ", with: "") ?? apiKey
 
-        logger?.log("[Realtime] Connecting to: \(url.absoluteString)")
-        logger?.log("[Realtime] Auth token: \(String(authToken.prefix(20)))...")
+        logger.debug("Connecting to: \(url.absoluteString)")
+        logger.trace("Auth token: \(String(authToken.prefix(20)))...")
 
         // Create Socket.IO manager with WebSocket transport
         let config: SocketIOClientConfiguration = [
@@ -265,7 +264,7 @@ public final class RealtimeClient: @unchecked Sendable {
         socket = manager?.defaultSocket
 
         guard let socket = socket else {
-            logger?.error("[Realtime] Failed to create socket")
+            logger.error("Failed to create socket")
             throw InsForgeError.unknown("Failed to create socket")
         }
 
@@ -281,7 +280,7 @@ public final class RealtimeClient: @unchecked Sendable {
             socket.on(clientEvent: .connect) { [weak self] _, _ in
                 guard !resumed else { return }
                 resumed = true
-                self?.logger?.log("[Realtime] Connected successfully, Socket ID: \(socket.sid ?? "unknown")")
+                self?.logDebug("Connected successfully, Socket ID: \(socket.sid ?? "unknown")")
 
                 // Re-subscribe to channels on connect/reconnect
                 self?.resubscribeToChannels()
@@ -296,7 +295,7 @@ public final class RealtimeClient: @unchecked Sendable {
                 let errorMessage = (data.first as? String) ?? "Unknown connection error"
                 let error = NSError(domain: "RealtimeClient", code: -1,
                     userInfo: [NSLocalizedDescriptionKey: errorMessage])
-                self?.logger?.error("[Realtime] Connection error: \(errorMessage)")
+                self?.logError("Connection error: \(errorMessage)")
                 continuation.resume(throwing: error)
             }
 
@@ -306,12 +305,12 @@ public final class RealtimeClient: @unchecked Sendable {
 
     /// Disconnect from the realtime server
     public func disconnect() {
-        logger?.log("[Realtime] Disconnecting...")
+        logger.debug("Disconnecting...")
         socket?.disconnect()
         socket = nil
         manager = nil
         subscribedChannels.setValue(Set())
-        logger?.log("[Realtime] Disconnected")
+        logger.debug("Disconnected")
     }
 
     // MARK: - Event Handlers Setup
@@ -320,27 +319,27 @@ public final class RealtimeClient: @unchecked Sendable {
         // Handle disconnect
         socket.on(clientEvent: .disconnect) { [weak self] data, _ in
             let reason = (data.first as? String) ?? "unknown"
-            self?.logger?.log("[Realtime] [<<<] disconnect: \(reason)")
+            self?.logDebug("[<<<] disconnect: \(reason)")
             self?.notifyDisconnect(reason)
         }
 
         // Handle reconnect attempts
         socket.on(clientEvent: .reconnect) { [weak self] data, _ in
-            self?.logger?.log("[Realtime] [<<<] reconnect: \(data)")
+            self?.logDebug("[<<<] reconnect: \(data)")
         }
 
         socket.on(clientEvent: .reconnectAttempt) { [weak self] data, _ in
-            self?.logger?.log("[Realtime] [<<<] reconnectAttempt: \(data)")
+            self?.logDebug("[<<<] reconnectAttempt: \(data)")
         }
 
         // Handle status changes
         socket.on(clientEvent: .statusChange) { [weak self] data, _ in
-            self?.logger?.log("[Realtime] [<<<] statusChange: \(data)")
+            self?.logDebug("[<<<] statusChange: \(data)")
         }
 
         // Handle realtime errors
         socket.on("realtime:error") { [weak self] data, _ in
-            self?.logger?.log("[Realtime] [<<<] realtime:error: \(data)")
+            self?.logDebug("[<<<] realtime:error: \(data)")
 
             guard let dict = data.first as? [String: Any],
                   let code = dict["code"] as? String,
@@ -359,7 +358,7 @@ public final class RealtimeClient: @unchecked Sendable {
         // Handle all other events (custom events from server)
         socket.onAny { [weak self] event in
             // Log ALL incoming events
-            self?.logger?.log("[Realtime] [<<<] \(event.event): \(event.items ?? [])")
+            self?.logTrace("[<<<] \(event.event): \(event.items ?? [])")
 
             // Skip system events for custom handler
             guard !event.event.starts(with: "realtime:"),
@@ -382,7 +381,7 @@ public final class RealtimeClient: @unchecked Sendable {
     public func subscribe(_ channel: String) async -> SubscribeResponse {
         // Already subscribed
         if subscribedChannels.value.contains(channel) {
-            logger?.log("[Realtime] Already subscribed to '\(channel)'")
+            logger.debug("Already subscribed to '\(channel)'")
             return .success(channel: channel)
         }
 
@@ -391,7 +390,7 @@ public final class RealtimeClient: @unchecked Sendable {
             do {
                 try await connect()
             } catch {
-                logger?.error("[Realtime] Auto-connect failed: \(error.localizedDescription)")
+                logger.error("Auto-connect failed: \(error.localizedDescription)")
                 return .failure(channel: channel, code: "CONNECTION_FAILED", message: error.localizedDescription)
             }
         }
@@ -401,12 +400,12 @@ public final class RealtimeClient: @unchecked Sendable {
         }
 
         let subscribePayload = ["channel": channel]
-        logger?.log("[Realtime] [>>>] realtime:subscribe: \(subscribePayload)")
+        logger.debug("[>>>] realtime:subscribe: \(subscribePayload)")
 
         // Emit subscribe event and wait for acknowledgment
         return await withCheckedContinuation { [weak self] continuation in
             socket.emitWithAck("realtime:subscribe", subscribePayload).timingOut(after: 10) { [weak self] data in
-                self?.logger?.log("[Realtime] [<<<] realtime:subscribe ACK: \(data)")
+                self?.logDebug("[<<<] realtime:subscribe ACK: \(data)")
 
                 // Handle timeout (data will be ["NO ACK"])
                 if let first = data.first as? String, first == "NO ACK" {
@@ -440,7 +439,7 @@ public final class RealtimeClient: @unchecked Sendable {
 
         if socket?.status == .connected {
             let unsubscribePayload = ["channel": channel]
-            logger?.log("[Realtime] [>>>] realtime:unsubscribe: \(unsubscribePayload)")
+            logger.debug("[>>>] realtime:unsubscribe: \(unsubscribePayload)")
             socket?.emit("realtime:unsubscribe", unsubscribePayload)
         }
     }
@@ -463,7 +462,7 @@ public final class RealtimeClient: @unchecked Sendable {
             "payload": payload
         ]
 
-        logger?.log("[Realtime] [>>>] realtime:publish: \(publishPayload)")
+        logger.debug("[>>>] realtime:publish: \(publishPayload)")
         socket?.emit("realtime:publish", publishPayload)
     }
 
@@ -561,9 +560,23 @@ public final class RealtimeClient: @unchecked Sendable {
         let channels = subscribedChannels.value
         for channel in channels {
             let payload = ["channel": channel]
-            logger?.log("[Realtime] [>>>] realtime:subscribe (re-subscribe): \(payload)")
+            logger.debug("[>>>] realtime:subscribe (re-subscribe): \(payload)")
             socket?.emit("realtime:subscribe", payload)
         }
+    }
+
+    // MARK: - Logging Helpers (for use in closures)
+
+    private func logDebug(_ message: String) {
+        logger.debug("\(message)")
+    }
+
+    private func logTrace(_ message: String) {
+        logger.trace("\(message)")
+    }
+
+    private func logError(_ message: String) {
+        logger.error("\(message)")
     }
 
     private func handleCustomEvent(_ event: String, data: [Any]) {

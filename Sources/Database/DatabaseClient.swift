@@ -1,5 +1,6 @@
 import Foundation
 import InsForgeCore
+import Logging
 
 /// Count algorithm options for row counting in queries.
 ///
@@ -72,26 +73,22 @@ public actor DatabaseClient {
     private let httpClient: HTTPClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let logger: (any InsForgeLogger)?
 
     /// Creates a new database client.
     /// - Parameters:
     ///   - url: The base URL of the database API.
     ///   - headersProvider: A thread-safe provider for HTTP headers.
     ///   - options: Optional database configuration options.
-    ///   - logger: An optional logger for debugging.
     public init(
         url: URL,
         headersProvider: LockIsolated<[String: String]>,
-        options: DatabaseOptions = DatabaseOptions(),
-        logger: (any InsForgeLogger)? = nil
+        options: DatabaseOptions = DatabaseOptions()
     ) {
         self.url = url
         self.headersProvider = headersProvider
-        self.httpClient = HTTPClient(logger: logger)
+        self.httpClient = HTTPClient()
         self.encoder = options.encoder
         self.decoder = options.decoder
-        self.logger = logger
     }
 
     /// Creates a query builder for the specified table.
@@ -122,6 +119,9 @@ public struct QueryBuilder: Sendable {
     private var preferHeader: String?
     private var countOption: CountOption?
     private var head: Bool = false
+
+    /// Logger for debug output
+    private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Get current headers (dynamically fetched to reflect auth state changes)
     private var headers: [String: String] {
@@ -360,11 +360,23 @@ public struct QueryBuilder: Sendable {
         }
 
         let method: HTTPMethod = head ? .head : .get
+
+        // Log request
+        logger.debug("\(method.rawValue) \(requestURL.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+
         let response = try await httpClient.execute(
             method,
             url: requestURL,
             headers: requestHeaders
         )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
 
         // Parse count from Content-Range header if present
         // Format: "0-24/100" or "*/100" for HEAD requests
@@ -374,6 +386,7 @@ public struct QueryBuilder: Sendable {
                 let countString = String(contentRange[contentRange.index(after: slashIndex)...])
                 totalCount = Int(countString)
             }
+            logger.trace("Content-Range: \(contentRange), count: \(totalCount ?? -1)")
         }
 
         // For HEAD requests, return empty data array
@@ -382,6 +395,7 @@ public struct QueryBuilder: Sendable {
         }
 
         let data = try decoder.decode([T].self, from: response.data)
+        logger.debug("Decoded \(data.count) record(s)")
         return QueryResult(data: data, count: totalCount)
     }
 
@@ -421,6 +435,13 @@ public struct QueryBuilder: Sendable {
             requestHeaders["Prefer"] = prefer
         }
 
+        // Log request
+        logger.debug("POST \(builder.url.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
         let response = try await builder.httpClient.execute(
             .post,
             url: builder.url,
@@ -428,7 +449,16 @@ public struct QueryBuilder: Sendable {
             body: data
         )
 
-        return try builder.decoder.decode([T].self, from: response.data)
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let result = try builder.decoder.decode([T].self, from: response.data)
+        logger.debug("Inserted \(result.count) record(s)")
+        return result
     }
 
     /// Inserts a single record into the table.
@@ -463,6 +493,13 @@ public struct QueryBuilder: Sendable {
         requestHeaders["Content-Type"] = "application/json"
         requestHeaders["Prefer"] = "return=representation"
 
+        // Log request
+        logger.debug("PATCH \(requestURL.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
         let response = try await httpClient.execute(
             .patch,
             url: requestURL,
@@ -470,7 +507,16 @@ public struct QueryBuilder: Sendable {
             body: data
         )
 
-        return try decoder.decode([T].self, from: response.data)
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let result = try decoder.decode([T].self, from: response.data)
+        logger.debug("Updated \(result.count) record(s)")
+        return result
     }
 
     // MARK: - Delete
@@ -485,10 +531,21 @@ public struct QueryBuilder: Sendable {
             throw InsForgeError.invalidURL
         }
 
-        _ = try await httpClient.execute(
+        // Log request
+        logger.debug("DELETE \(requestURL.absoluteString)")
+        logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
+
+        let response = try await httpClient.execute(
             .delete,
             url: requestURL,
             headers: headers
         )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8), !responseString.isEmpty {
+            logger.trace("Response body: \(responseString)")
+        }
     }
 }

@@ -4,6 +4,7 @@ import InsForgeAuth
 import InsForgeDatabase
 import InsForgeCore
 import InsForgeRealtime
+import Logging
 
 @MainActor
 class InsForgeService: ObservableObject {
@@ -22,12 +23,16 @@ class InsForgeService: ObservableObject {
 
         print("[TodoApp] Initializing InsForgeClient with URL: \(Config.insForgeURL)")
 
+        // Configure SDK logging with SwiftLog
+        // Available log levels: trace, debug, info, notice, warning, error, critical
+        // Available destinations: .console, .osLog, .none, .custom(...)
         self.client = InsForgeClient(
             baseURL: url,
             anonKey: Config.anonKey,
             options: InsForgeClientOptions(
                 global: InsForgeClientOptions.GlobalOptions(
-                    logger: ConsoleLogger()
+                    logLevel: .debug,         // Show debug-level logs
+                    logDestination: .console  // Output to Xcode console (use .osLog for Console.app)
                 )
             )
         )

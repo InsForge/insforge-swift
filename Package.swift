@@ -49,12 +49,16 @@ let package = Package(
         .package(url: "https://github.com/socketio/socket.io-client-swift.git", from: "16.0.0"),
         // Swift DocC Plugin for documentation generation
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
+        // SwiftLog for structured logging
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
     ],
     targets: [
         // Core helpers and utilities
         .target(
             name: "InsForgeCore",
-            dependencies: [],
+            dependencies: [
+                .product(name: "Logging", package: "swift-log")
+            ],
             path: "Sources/Core"
         ),
 

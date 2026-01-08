@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -26,18 +27,12 @@ public enum HTTPMethod: String {
 /// various HTTP methods, file uploads, and response decoding.
 public actor HTTPClient {
     private let session: URLSession
-    private let logger: (any InsForgeLogger)?
+    private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Creates a new HTTP client.
-    /// - Parameters:
-    ///   - session: The URL session to use for requests. Defaults to `.shared`.
-    ///   - logger: An optional logger for debugging. Defaults to `nil`.
-    public init(
-        session: URLSession = .shared,
-        logger: (any InsForgeLogger)? = nil
-    ) {
+    /// - Parameter session: The URL session to use for requests. Defaults to `.shared`.
+    public init(session: URLSession = .shared) {
         self.session = session
-        self.logger = logger
     }
 
     /// Executes an HTTP request.
@@ -63,12 +58,12 @@ public actor HTTPClient {
             request.setValue(value, forHTTPHeaderField: key)
         }
 
-        logger?.log("[\(method.rawValue)] \(url)")
+        logger.debug("[\(method.rawValue)] \(url)")
         if !headers.isEmpty {
-            logger?.log("Request headers: \(headers)")
+            logger.trace("Request headers: \(headers)")
         }
         if let body = body, let bodyString = String(data: body, encoding: .utf8) {
-            logger?.log("Request body: \(bodyString)")
+            logger.trace("Request body: \(bodyString)")
         }
 
         do {
@@ -78,11 +73,11 @@ public actor HTTPClient {
                 throw InsForgeError.invalidResponse
             }
 
-            logger?.log("Response status: \(httpResponse.statusCode)")
+            logger.debug("Response status: \(httpResponse.statusCode)")
 
             // Log response body for debugging
             if let responseString = String(data: data, encoding: .utf8) {
-                logger?.log("Response body: \(responseString)")
+                logger.trace("Response body: \(responseString)")
             }
 
             let httpResponseObj = HTTPResponse(
@@ -93,7 +88,7 @@ public actor HTTPClient {
             // Check for errors
             if !(200..<300).contains(httpResponse.statusCode) {
                 let error = try? JSONDecoder().decode(ErrorResponse.self, from: data)
-                logger?.error("HTTP Error: status=\(httpResponse.statusCode), message=\(error?.message ?? "Request failed")")
+                logger.error("HTTP Error: status=\(httpResponse.statusCode), message=\(error?.message ?? "Request failed")")
                 throw InsForgeError.httpError(
                     statusCode: httpResponse.statusCode,
                     message: error?.message ?? "Request failed",
@@ -106,7 +101,7 @@ public actor HTTPClient {
         } catch let error as InsForgeError {
             throw error
         } catch {
-            logger?.log("Network error: \(error)")
+            logger.error("Network error: \(error)")
             throw InsForgeError.networkError(error)
         }
     }
@@ -150,7 +145,7 @@ public actor HTTPClient {
 
         request.httpBody = body
 
-        logger?.log("[UPLOAD-\(method.rawValue)] \(url)")
+        logger.debug("[UPLOAD-\(method.rawValue)] \(url)")
 
         let (data, response) = try await session.data(for: request)
 
@@ -158,7 +153,7 @@ public actor HTTPClient {
             throw InsForgeError.invalidResponse
         }
 
-        logger?.log("Upload response status: \(httpResponse.statusCode)")
+        logger.debug("Upload response status: \(httpResponse.statusCode)")
 
         let httpResponseObj = HTTPResponse(
             data: data,
@@ -210,10 +205,10 @@ public struct HTTPResponse: Sendable {
             return try jsonDecoder.decode(type, from: data)
         } catch {
             // Log detailed decoding error
-            print("[InsForge Decode Error] Failed to decode \(T.self)")
-            print("[InsForge Decode Error] Error: \(error)")
+            let logger = InsForgeLoggerFactory.shared
+            logger.error("Failed to decode \(T.self): \(error)")
             if let responseString = String(data: data, encoding: .utf8) {
-                print("[InsForge Decode Error] Response data: \(responseString)")
+                logger.debug("Response data: \(responseString)")
             }
             throw error
         }

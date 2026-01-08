@@ -1,4 +1,5 @@
 import XCTest
+import Logging
 @testable import InsForge
 
 final class InsForgeClientTests: XCTestCase {
@@ -41,7 +42,8 @@ final class InsForgeClientTests: XCTestCase {
             options: InsForgeClientOptions(
                 global: .init(
                     headers: ["X-Custom": "value"],
-                    logger: nil
+                    logLevel: .debug,
+                    logDestination: .console
                 )
             )
         )
@@ -49,5 +51,6 @@ final class InsForgeClientTests: XCTestCase {
         // Just verify client was created with custom options
         XCTAssertNotNil(customClient)
         XCTAssertEqual(customClient.options.global.headers["X-Custom"], "value")
+        XCTAssertEqual(customClient.options.global.logLevel, .debug)
     }
 }

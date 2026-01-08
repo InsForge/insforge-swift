@@ -1,12 +1,13 @@
 import Foundation
 import InsForgeCore
+import Logging
 
 /// AI client for chat and image generation
 public actor AIClient {
     private let url: URL
     private let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
-    private let logger: (any InsForgeLogger)?
+    private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Get current headers (dynamically fetched to reflect auth state changes)
     private var headers: [String: String] {
@@ -15,13 +16,11 @@ public actor AIClient {
 
     public init(
         url: URL,
-        headersProvider: LockIsolated<[String: String]>,
-        logger: (any InsForgeLogger)? = nil
+        headersProvider: LockIsolated<[String: String]>
     ) {
         self.url = url
         self.headersProvider = headersProvider
-        self.httpClient = HTTPClient(logger: logger)
-        self.logger = logger
+        self.httpClient = HTTPClient()
     }
 
     // MARK: - Chat Completion
@@ -58,20 +57,36 @@ public actor AIClient {
         }
 
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("[AI] POST \(endpoint.absoluteString)")
+        logger.trace("[AI] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("[AI] Request body: \(bodyString)")
+        }
 
         let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[AI] Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("[AI] Response body: \(responseString)")
+        }
+
         // Try decoding the response
         do {
-            return try response.decode(ChatCompletionResponse.self)
+            let result = try response.decode(ChatCompletionResponse.self)
+            logger.debug("[AI] Chat completion successful, model: \(model)")
+            return result
         } catch {
-            logger?.log("[ChatCompletion] Failed to decode response: \(error)")
-            logger?.log("[ChatCompletion] Response data: \(String(data: response.data, encoding: .utf8) ?? "unable to decode")")
+            logger.error("[AI] Failed to decode chat completion response: \(error)")
             throw error
         }
     }
@@ -91,15 +106,32 @@ public actor AIClient {
         ]
 
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("[AI] POST \(endpoint.absoluteString)")
+        logger.trace("[AI] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("[AI] Request body: \(bodyString)")
+        }
 
         let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
-        return try response.decode(ImageGenerationResponse.self)
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[AI] Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("[AI] Response body: \(responseString)")
+        }
+
+        let result = try response.decode(ImageGenerationResponse.self)
+        logger.debug("[AI] Image generation successful, model: \(model), images: \(result.imageCount)")
+        return result
     }
 
     // MARK: - Models
@@ -108,11 +140,22 @@ public actor AIClient {
     public func listModels() async throws -> ListModelsResponse {
         let endpoint = url.appendingPathComponent("models")
 
+        // Log request
+        logger.debug("[AI] GET \(endpoint.absoluteString)")
+        logger.trace("[AI] Request headers: \(headers.filter { $0.key != "Authorization" })")
+
         let response = try await httpClient.execute(
             .get,
             url: endpoint,
             headers: headers
         )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[AI] Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("[AI] Response body: \(responseString)")
+        }
 
         // API returns array of models directly
         let models = try response.decode([AIModel].self)
@@ -140,6 +183,7 @@ public actor AIClient {
                 )
             }
 
+        logger.debug("[AI] Listed \(models.count) model(s): \(textModels.count) text, \(imageModels.count) image")
         return ListModelsResponse(text: textProviders, image: imageProviders)
     }
 }

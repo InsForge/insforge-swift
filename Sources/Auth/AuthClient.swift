@@ -1,5 +1,6 @@
 import Foundation
 import InsForgeCore
+import Logging
 #if os(macOS)
 import AppKit
 #elseif os(iOS) || os(tvOS)
@@ -37,7 +38,7 @@ public actor AuthClient {
     private let httpClient: HTTPClient
     private let storage: AuthStorage
     private let autoRefreshToken: Bool
-    private let logger: (any InsForgeLogger)?
+    private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Callback invoked when auth state changes (sign in/up/out)
     private var onAuthStateChange: (@Sendable (Session?) async -> Void)?
@@ -46,16 +47,14 @@ public actor AuthClient {
         url: URL,
         authComponent: URL,
         headers: [String: String],
-        options: AuthOptions = AuthOptions(),
-        logger: (any InsForgeLogger)? = nil
+        options: AuthOptions = AuthOptions()
     ) {
         self.url = url
         self.authComponent = authComponent
         self.headers = headers
-        self.httpClient = HTTPClient(logger: logger)
+        self.httpClient = HTTPClient()
         self.storage = options.storage
         self.autoRefreshToken = options.autoRefreshToken
-        self.logger = logger
     }
 
     /// Set callback for auth state changes
@@ -82,13 +81,26 @@ public actor AuthClient {
         }
 
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request (don't log password)
+        logger.debug("[Auth] POST \(endpoint.absoluteString)")
+        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("[Auth] Request body: email=\(email), name=\(name ?? "nil")")
 
         let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[Auth] Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("[Auth] Response body: \(responseString)")
+        }
 
         let authResponse = try response.decode(AuthResponse.self)
 
@@ -104,6 +116,7 @@ public actor AuthClient {
             await onAuthStateChange?(session)
         }
 
+        logger.debug("[Auth] Sign up successful for: \(email)")
         return authResponse
     }
 
@@ -122,13 +135,26 @@ public actor AuthClient {
         ]
 
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request (don't log password)
+        logger.debug("[Auth] POST \(endpoint.absoluteString)")
+        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("[Auth] Request body: email=\(email)")
 
         let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[Auth] Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("[Auth] Response body: \(responseString)")
+        }
 
         let authResponse = try response.decode(AuthResponse.self)
 
@@ -144,6 +170,7 @@ public actor AuthClient {
             await onAuthStateChange?(session)
         }
 
+        logger.debug("[Auth] Sign in successful for: \(email)")
         return authResponse
     }
 
@@ -152,7 +179,7 @@ public actor AuthClient {
     /// Sign out current user
     public func signOut() async throws {
         try await storage.deleteSession()
-        logger?.log("User signed out")
+        logger.debug("[Auth] User signed out")
 
         // Notify listener about auth state change (nil = signed out)
         await onAuthStateChange?(nil)
@@ -163,18 +190,31 @@ public actor AuthClient {
     /// Get current authenticated user
     public func getCurrentUser() async throws -> User {
         let endpoint = url.appendingPathComponent("sessions/current")
+        let requestHeaders = try await getAuthHeaders()
+
+        // Log request
+        logger.debug("[Auth] GET \(endpoint.absoluteString)")
+        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
 
         let response = try await httpClient.execute(
             .get,
             url: endpoint,
-            headers: await getAuthHeaders()
+            headers: requestHeaders
         )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[Auth] Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("[Auth] Response body: \(responseString)")
+        }
 
         struct UserResponse: Codable {
             let user: User
         }
 
         let userResponse = try response.decode(UserResponse.self)
+        logger.debug("[Auth] Got current user: \(userResponse.user.email)")
         return userResponse.user
     }
 
@@ -206,11 +246,11 @@ public actor AuthClient {
         ]
 
         guard let authURL = components.url else {
-            logger?.log("Failed to construct sign-in URL")
+            logger.error("[Auth] Failed to construct sign-in URL")
             return
         }
 
-        logger?.log("Opening sign-in page: \(authURL)")
+        logger.debug("[Auth] Opening sign-in page: \(authURL)")
 
         #if os(macOS)
         await NSWorkspace.shared.open(authURL)
@@ -226,9 +266,12 @@ public actor AuthClient {
     /// - Parameter callbackURL: The URL received from authentication callback
     /// - Returns: AuthResponse with user and session
     public func handleAuthCallback(_ callbackURL: URL) async throws -> AuthResponse {
+        logger.debug("[Auth] Handling auth callback: \(callbackURL.absoluteString)")
+
         // Parse callback URL parameters
         guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
               let queryItems = components.queryItems else {
+            logger.error("[Auth] Invalid callback URL")
             throw InsForgeError.invalidURL
         }
 
@@ -243,6 +286,7 @@ public actor AuthClient {
         guard let accessToken = params["access_token"],
               let userId = params["user_id"],
               let email = params["email"] else {
+            logger.error("[Auth] Missing required parameters in callback URL")
             throw InsForgeError.invalidResponse
         }
 
@@ -273,6 +317,8 @@ public actor AuthClient {
         // Notify listener about auth state change
         await onAuthStateChange?(session)
 
+        logger.debug("[Auth] Auth callback handled successfully for: \(email)")
+
         // Return auth response
         return AuthResponse(
             user: user,
@@ -291,15 +337,25 @@ public actor AuthClient {
 
         let body = ["email": email]
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
-        _ = try await httpClient.execute(
+        // Log request
+        logger.debug("[Auth] POST \(endpoint.absoluteString)")
+        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("[Auth] Request body: email=\(email)")
+
+        let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
-        logger?.log("Verification email sent to \(email)")
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[Auth] Response: \(statusCode)")
+
+        logger.debug("[Auth] Verification email sent to: \(email)")
     }
 
     /// Verify email with OTP code
@@ -312,13 +368,26 @@ public actor AuthClient {
         }
 
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request (don't log OTP)
+        logger.debug("[Auth] POST \(endpoint.absoluteString)")
+        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("[Auth] Request body: email=\(email ?? "nil")")
 
         let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[Auth] Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("[Auth] Response body: \(responseString)")
+        }
 
         let authResponse = try response.decode(AuthResponse.self)
 
@@ -330,6 +399,7 @@ public actor AuthClient {
             ))
         }
 
+        logger.debug("[Auth] Email verified successfully")
         return authResponse
     }
 
@@ -341,14 +411,25 @@ public actor AuthClient {
     public func getProfile(userId: String) async throws -> Profile {
         let endpoint = url.appendingPathComponent("profiles/\(userId)")
 
+        // Log request
+        logger.debug("[Auth] GET \(endpoint.absoluteString)")
+        logger.trace("[Auth] Request headers: \(headers.filter { $0.key != "Authorization" })")
+
         let response = try await httpClient.execute(
             .get,
             url: endpoint,
             headers: headers
         )
 
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[Auth] Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("[Auth] Response body: \(responseString)")
+        }
+
         let profile = try response.decode(Profile.self)
-        logger?.log("Fetched profile for user: \(userId)")
+        logger.debug("[Auth] Fetched profile for user: \(userId)")
         return profile
     }
 
@@ -360,16 +441,31 @@ public actor AuthClient {
 
         let body: [String: Any] = ["profile": profile]
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = try await getAuthHeaders().merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("[Auth] PATCH \(endpoint.absoluteString)")
+        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("[Auth] Request body: \(bodyString)")
+        }
 
         let response = try await httpClient.execute(
             .patch,
             url: endpoint,
-            headers: try await getAuthHeaders().merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[Auth] Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("[Auth] Response body: \(responseString)")
+        }
+
         let updatedProfile = try response.decode(Profile.self)
-        logger?.log("Updated current user's profile")
+        logger.debug("[Auth] Updated current user's profile")
         return updatedProfile
     }
 
@@ -381,15 +477,25 @@ public actor AuthClient {
 
         let body = ["email": email]
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
-        _ = try await httpClient.execute(
+        // Log request
+        logger.debug("[Auth] POST \(endpoint.absoluteString)")
+        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("[Auth] Request body: email=\(email)")
+
+        let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
-        logger?.log("Password reset email sent to \(email)")
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[Auth] Response: \(statusCode)")
+
+        logger.debug("[Auth] Password reset email sent to: \(email)")
     }
 
     /// Reset password with OTP token
@@ -401,15 +507,24 @@ public actor AuthClient {
             "newPassword": newPassword
         ]
         let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
-        _ = try await httpClient.execute(
+        // Log request (don't log OTP or password)
+        logger.debug("[Auth] POST \(endpoint.absoluteString)")
+        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+
+        let response = try await httpClient.execute(
             .post,
             url: endpoint,
-            headers: headers.merging(["Content-Type": "application/json"]) { $1 },
+            headers: requestHeaders,
             body: data
         )
 
-        logger?.log("Password reset successful")
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("[Auth] Response: \(statusCode)")
+
+        logger.debug("[Auth] Password reset successful")
     }
 
     // MARK: - Private Helpers

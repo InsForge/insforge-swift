@@ -2,6 +2,7 @@ import Foundation
 import InsForgeCore
 import InsForgeAuth
 import InsForgeDatabase
+import Logging
 
 /// Configuration options for InsForge client
 public struct InsForgeClientOptions: Sendable {
@@ -13,17 +14,44 @@ public struct InsForgeClientOptions: Sendable {
         /// URL session for network requests
         public let session: URLSession
 
-        /// Logger instance
-        public let logger: (any InsForgeLogger)?
+        /// Log level for SDK output
+        /// - trace: Most verbose, includes all internal details
+        /// - debug: Detailed information for debugging
+        /// - info: General operational information (default)
+        /// - warning: Warnings that don't prevent operation
+        /// - error: Errors that affect functionality
+        /// - critical: Critical failures
+        public let logLevel: Logging.Logger.Level
 
+        /// Log output destination
+        /// - console: Standard output (print)
+        /// - osLog: Apple's unified logging system (recommended for iOS/macOS)
+        /// - none: Disable logging
+        /// - custom: Provide your own LogHandler factory
+        public let logDestination: LogDestination
+
+        /// Subsystem identifier for logging (used with osLog destination)
+        public let logSubsystem: String
+
+        /// Creates global options with logging configuration
+        /// - Parameters:
+        ///   - headers: Additional headers to include in all requests
+        ///   - session: URL session for network requests
+        ///   - logLevel: Minimum log level to output (default: .info)
+        ///   - logDestination: Where to output logs (default: .console)
+        ///   - logSubsystem: Subsystem identifier for logging (default: "com.insforge.sdk")
         public init(
             headers: [String: String] = [:],
             session: URLSession = .shared,
-            logger: (any InsForgeLogger)? = nil
+            logLevel: Logging.Logger.Level = .info,
+            logDestination: LogDestination = .console,
+            logSubsystem: String = "com.insforge.sdk"
         ) {
             self.headers = headers
             self.session = session
-            self.logger = logger
+            self.logLevel = logLevel
+            self.logDestination = logDestination
+            self.logSubsystem = logSubsystem
         }
     }
 
