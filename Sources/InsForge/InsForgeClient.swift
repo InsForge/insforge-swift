@@ -166,16 +166,9 @@ public final class InsForgeClient: Sendable {
     public var realtime: RealtimeClient {
         mutableState.withValue { state in
             if state.realtime == nil {
-                // Convert HTTP(S) URL to WS(S) URL
-                var wsURL = baseURL
-                if wsURL.scheme == "https" {
-                    wsURL = URL(string: wsURL.absoluteString.replacingOccurrences(of: "https://", with: "wss://"))!
-                } else if wsURL.scheme == "http" {
-                    wsURL = URL(string: wsURL.absoluteString.replacingOccurrences(of: "http://", with: "ws://"))!
-                }
-
+                // Socket.IO uses HTTP URL and handles WebSocket upgrade internally
                 state.realtime = RealtimeClient(
-                    url: wsURL.appendingPathComponent("api/realtime"),
+                    url: baseURL,
                     apiKey: anonKey,
                     headersProvider: _headers,
                     logger: options.global.logger

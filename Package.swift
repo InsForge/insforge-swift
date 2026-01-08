@@ -45,8 +45,8 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // WebSocket support for Realtime
-        .package(url: "https://github.com/daltoniam/Starscream.git", from: "4.0.0"),
+        // Socket.IO client for Realtime
+        .package(url: "https://github.com/socketio/socket.io-client-swift.git", from: "16.0.0"),
     ],
     targets: [
         // Core helpers and utilities
@@ -97,7 +97,7 @@ let package = Package(
             dependencies: [
                 "InsForgeCore",
                 "InsForgeAuth",
-                .product(name: "Starscream", package: "Starscream")
+                .product(name: "SocketIO", package: "socket.io-client-swift")
             ],
             path: "Sources/Realtime"
         ),

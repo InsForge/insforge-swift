@@ -2,209 +2,118 @@ import Foundation
 import InsForgeCore
 import InsForgeAuth
 
-/// High-level Realtime channel for broadcast and postgres changes
-public actor RealtimeChannel {
+/// High-level Realtime channel for subscribing and broadcasting messages
+///
+/// Example usage:
+/// ```swift
+/// let channel = realtime.channel("orders:123")
+///
+/// // Subscribe to the channel
+/// let response = await channel.subscribe()
+/// if response.ok {
+///     print("Subscribed to channel")
+/// }
+///
+/// // Listen for specific events
+/// channel.on("order_updated") { message in
+///     print("Order updated:", message.payload)
+/// }
+///
+/// // Send a broadcast message
+/// try channel.broadcast(event: "status_changed", message: ["status": "shipped"])
+///
+/// // Unsubscribe when done
+/// channel.unsubscribe()
+/// ```
+public final class RealtimeChannelWrapper: @unchecked Sendable {
     private let channelName: String
     private let client: RealtimeClient
     private var isSubscribed = false
-    private var broadcastContinuations: [String: [UUID: AsyncStream<BroadcastMessage>.Continuation]] = [:]
-    private var postgresChangeContinuations: [String: [UUID: Any]] = [:]
+    private var listenerIds = LockIsolated<[UUID]>([])
 
     init(channelName: String, client: RealtimeClient) {
         self.channelName = channelName
         self.client = client
     }
 
+    /// The name of this channel
+    public var name: String {
+        channelName
+    }
+
     // MARK: - Subscription
 
     /// Subscribe to the channel
-    /// Must be called before receiving broadcast messages or postgres changes via WebSocket
-    public func subscribe() async throws {
-        guard !isSubscribed else { return }
-
-        await client.subscribe(to: channelName) { [weak self] message in
-            guard let self = self else { return }
-            Task {
-                await self.handleMessage(message)
-            }
+    /// - Returns: Subscribe response indicating success or failure
+    public func subscribe() async -> SubscribeResponse {
+        guard !isSubscribed else {
+            return .success(channel: channelName)
         }
 
-        isSubscribed = true
+        let response = await client.subscribe(channelName)
+        if response.ok {
+            isSubscribed = true
+        }
+        return response
     }
 
     /// Unsubscribe from the channel
-    public func unsubscribe() async {
-        await client.unsubscribe(from: channelName)
+    public func unsubscribe() {
+        client.unsubscribe(from: channelName)
         isSubscribed = false
 
-        // Clean up all continuations
-        for (_, continuations) in broadcastContinuations {
-            for (_, continuation) in continuations {
-                continuation.finish()
-            }
-        }
-        broadcastContinuations.removeAll()
-        postgresChangeContinuations.removeAll()
-    }
-
-    // MARK: - Broadcast
-
-    /// Listen for broadcast messages on a specific event
-    /// - Parameter event: Event name to listen for, use "*" to listen to all events
-    /// - Returns: AsyncStream of broadcast messages
-    public func broadcast(event: String = "*") -> AsyncStream<BroadcastMessage> {
-        AsyncStream { continuation in
-            let id = UUID()
-            Task {
-                await self.addBroadcastContinuation(id: id, event: event, continuation: continuation)
-            }
-
-            continuation.onTermination = { _ in
-                Task {
-                    await self.removeBroadcastContinuation(id: id, event: event)
-                }
-            }
+        // Remove all event listeners for this channel
+        listenerIds.withValue { ids in
+            ids.removeAll()
         }
     }
 
-    /// Send a broadcast message
+    /// Check if currently subscribed
+    public var subscribed: Bool {
+        isSubscribed
+    }
+
+    // MARK: - Event Listening
+
+    /// Listen for events on this channel
     /// - Parameters:
-    ///   - event: Event name
-    ///   - message: Message payload (must be Encodable)
-    public func broadcast<T: Encodable>(event: String, message: T) async throws {
-        let encoder = JSONEncoder()
-        let data = try encoder.encode(message)
-        let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-
-        try await client.publish(to: channelName, event: event, payload: dict)
+    ///   - event: Event name to listen for
+    ///   - callback: Callback when event is received
+    /// - Returns: Listener ID for removal
+    @discardableResult
+    public func on(_ event: String, callback: @escaping (SocketMessage) -> Void) -> UUID {
+        let id = client.on(event) { [weak self] message in
+            // Only forward messages for this channel
+            if message.meta.channel == self?.channelName {
+                callback(message)
+            }
+        }
+        listenerIds.withValue { $0.append(id) }
+        return id
     }
+
+    /// Remove a listener
+    public func off(_ event: String, id: UUID) {
+        client.off(event, id: id)
+        listenerIds.withValue { $0.removeAll { $0 == id } }
+    }
+
+    // MARK: - Broadcasting
 
     /// Send a broadcast message with dictionary payload
     /// - Parameters:
     ///   - event: Event name
     ///   - message: Message payload as dictionary
-    public func broadcast(event: String, message: [String: Any]) async throws {
-        try await client.publish(to: channelName, event: event, payload: message)
+    public func broadcast(event: String, message: [String: Any]) throws {
+        try client.publish(to: channelName, event: event, payload: message)
     }
 
-    // MARK: - Postgres Changes
-
-    /// Listen for postgres changes on a schema
+    /// Send a broadcast message with Encodable payload
     /// - Parameters:
-    ///   - action: Type of action to listen for (AnyAction, InsertAction, UpdateAction, or DeleteAction)
-    ///   - schema: Database schema name (e.g., "public")
-    ///   - table: Optional table name to filter
-    ///   - filter: Optional postgres filter
-    /// - Returns: AsyncStream of postgres change actions
-    public func postgresChange<Action: PostgresChangeAction>(
-        _: Action.Type,
-        schema: String,
-        table: String? = nil,
-        filter: String? = nil
-    ) -> AsyncStream<Action> {
-        AsyncStream { continuation in
-            let id = UUID()
-            let key = postgresChangeKey(schema: schema, table: table)
-
-            Task {
-                await self.addPostgresChangeContinuation(id: id, key: key, continuation: continuation)
-            }
-
-            continuation.onTermination = { _ in
-                Task {
-                    await self.removePostgresChangeContinuation(id: id, key: key)
-                }
-            }
-        }
-    }
-
-    // MARK: - Private Helpers
-
-    private func addBroadcastContinuation(
-        id: UUID,
-        event: String,
-        continuation: AsyncStream<BroadcastMessage>.Continuation
-    ) {
-        if broadcastContinuations[event] == nil {
-            broadcastContinuations[event] = [:]
-        }
-        broadcastContinuations[event]?[id] = continuation
-    }
-
-    private func removeBroadcastContinuation(id: UUID, event: String) {
-        broadcastContinuations[event]?.removeValue(forKey: id)
-        if broadcastContinuations[event]?.isEmpty == true {
-            broadcastContinuations.removeValue(forKey: event)
-        }
-    }
-
-    private func addPostgresChangeContinuation<Action: PostgresChangeAction>(
-        id: UUID,
-        key: String,
-        continuation: AsyncStream<Action>.Continuation
-    ) {
-        if postgresChangeContinuations[key] == nil {
-            postgresChangeContinuations[key] = [:]
-        }
-        postgresChangeContinuations[key]?[id] = continuation
-    }
-
-    private func removePostgresChangeContinuation(id: UUID, key: String) {
-        postgresChangeContinuations[key]?.removeValue(forKey: id)
-        if postgresChangeContinuations[key]?.isEmpty == true {
-            postgresChangeContinuations.removeValue(forKey: key)
-        }
-    }
-
-    private func postgresChangeKey(schema: String, table: String?) -> String {
-        if let table = table {
-            return "\(schema):\(table)"
-        }
-        return schema
-    }
-
-    private func handleMessage(_ message: RealtimeMessage) {
-        // Handle broadcast messages
-        if let eventName = message.eventName {
-            handleBroadcastMessage(message, event: eventName)
-        }
-
-        // Handle postgres changes
-        if let payload = message.payload,
-           let schema = payload["schema"]?.value as? String {
-            let table = payload["table"]?.value as? String
-            let key = postgresChangeKey(schema: schema, table: table)
-            handlePostgresChange(message, key: key)
-        }
-    }
-
-    private func handleBroadcastMessage(_ message: RealtimeMessage, event: String) {
-        let broadcastMsg = BroadcastMessage(
-            event: event,
-            payload: message.payload ?? [:],
-            senderId: message.senderId
-        )
-
-        // Send to specific event listeners
-        broadcastContinuations[event]?.values.forEach { continuation in
-            continuation.yield(broadcastMsg)
-        }
-
-        // Send to wildcard listeners
-        broadcastContinuations["*"]?.values.forEach { continuation in
-            continuation.yield(broadcastMsg)
-        }
-    }
-
-    private func handlePostgresChange(_ message: RealtimeMessage, key: String) {
-        guard let continuations = postgresChangeContinuations[key] else { return }
-
-        // Try to decode and send to typed continuations
-        for (_, _) in continuations {
-            // TODO: Implement proper type-safe decoding and yielding
-            // This requires runtime type information or a different approach
-            // For now, this is a placeholder for future implementation
-        }
+    ///   - event: Event name
+    ///   - message: Message payload (must be Encodable)
+    public func broadcast<T: Encodable>(event: String, message: T) throws {
+        try client.publish(to: channelName, event: event, payload: message)
     }
 }
 
@@ -220,5 +129,16 @@ public struct BroadcastMessage: Sendable {
     public func decode<T: Decodable>(_ type: T.Type) throws -> T {
         let data = try JSONSerialization.data(withJSONObject: payload.mapValues { $0.value })
         return try JSONDecoder().decode(T.self, from: data)
+    }
+}
+
+// MARK: - RealtimeClient Extension for Channel API
+
+extension RealtimeClient {
+    /// Get or create a channel wrapper for high-level operations
+    /// - Parameter channelName: Name of the channel
+    /// - Returns: RealtimeChannelWrapper instance
+    public func channel(_ channelName: String) -> RealtimeChannelWrapper {
+        RealtimeChannelWrapper(channelName: channelName, client: self)
     }
 }
