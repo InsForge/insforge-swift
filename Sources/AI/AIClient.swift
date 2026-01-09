@@ -60,10 +60,10 @@ public actor AIClient {
         let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
         // Log request
-        logger.debug("[AI] POST \(endpoint.absoluteString)")
-        logger.trace("[AI] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
         if let bodyString = String(data: data, encoding: .utf8) {
-            logger.trace("[AI] Request body: \(bodyString)")
+            logger.trace("Request body: \(bodyString)")
         }
 
         let response = try await httpClient.execute(
@@ -75,18 +75,18 @@ public actor AIClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[AI] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
         if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("[AI] Response body: \(responseString)")
+            logger.trace("Response body: \(responseString)")
         }
 
         // Try decoding the response
         do {
             let result = try response.decode(ChatCompletionResponse.self)
-            logger.debug("[AI] Chat completion successful, model: \(model)")
+            logger.debug("Chat completion successful, model: \(model)")
             return result
         } catch {
-            logger.error("[AI] Failed to decode chat completion response: \(error)")
+            logger.error("Failed to decode chat completion response: \(error)")
             throw error
         }
     }
@@ -109,10 +109,10 @@ public actor AIClient {
         let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
         // Log request
-        logger.debug("[AI] POST \(endpoint.absoluteString)")
-        logger.trace("[AI] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
         if let bodyString = String(data: data, encoding: .utf8) {
-            logger.trace("[AI] Request body: \(bodyString)")
+            logger.trace("Request body: \(bodyString)")
         }
 
         let response = try await httpClient.execute(
@@ -124,13 +124,13 @@ public actor AIClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[AI] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
         if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("[AI] Response body: \(responseString)")
+            logger.trace("Response body: \(responseString)")
         }
 
         let result = try response.decode(ImageGenerationResponse.self)
-        logger.debug("[AI] Image generation successful, model: \(model), images: \(result.imageCount)")
+        logger.debug("Image generation successful, model: \(model), images: \(result.imageCount)")
         return result
     }
 
@@ -141,8 +141,8 @@ public actor AIClient {
         let endpoint = url.appendingPathComponent("models")
 
         // Log request
-        logger.debug("[AI] GET \(endpoint.absoluteString)")
-        logger.trace("[AI] Request headers: \(headers.filter { $0.key != "Authorization" })")
+        logger.debug("GET \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
 
         let response = try await httpClient.execute(
             .get,
@@ -152,9 +152,9 @@ public actor AIClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[AI] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
         if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("[AI] Response body: \(responseString)")
+            logger.trace("Response body: \(responseString)")
         }
 
         // API returns array of models directly
@@ -183,7 +183,7 @@ public actor AIClient {
                 )
             }
 
-        logger.debug("[AI] Listed \(models.count) model(s): \(textModels.count) text, \(imageModels.count) image")
+        logger.debug("Listed \(models.count) model(s): \(textModels.count) text, \(imageModels.count) image")
         return ListModelsResponse(text: textProviders, image: imageProviders)
     }
 }

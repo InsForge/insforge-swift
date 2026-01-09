@@ -84,9 +84,9 @@ public actor AuthClient {
         let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
         // Log request (don't log password)
-        logger.debug("[Auth] POST \(endpoint.absoluteString)")
-        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
-        logger.trace("[Auth] Request body: email=\(email), name=\(name ?? "nil")")
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("Request body: email=\(email), name=\(name ?? "nil")")
 
         let response = try await httpClient.execute(
             .post,
@@ -97,9 +97,9 @@ public actor AuthClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[Auth] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
         if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("[Auth] Response body: \(responseString)")
+            logger.trace("Response body: \(responseString)")
         }
 
         let authResponse = try response.decode(AuthResponse.self)
@@ -116,7 +116,7 @@ public actor AuthClient {
             await onAuthStateChange?(session)
         }
 
-        logger.debug("[Auth] Sign up successful for: \(email)")
+        logger.debug("Sign up successful for: \(email)")
         return authResponse
     }
 
@@ -138,9 +138,9 @@ public actor AuthClient {
         let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
         // Log request (don't log password)
-        logger.debug("[Auth] POST \(endpoint.absoluteString)")
-        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
-        logger.trace("[Auth] Request body: email=\(email)")
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("Request body: email=\(email)")
 
         let response = try await httpClient.execute(
             .post,
@@ -151,9 +151,9 @@ public actor AuthClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[Auth] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
         if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("[Auth] Response body: \(responseString)")
+            logger.trace("Response body: \(responseString)")
         }
 
         let authResponse = try response.decode(AuthResponse.self)
@@ -170,7 +170,7 @@ public actor AuthClient {
             await onAuthStateChange?(session)
         }
 
-        logger.debug("[Auth] Sign in successful for: \(email)")
+        logger.debug("Sign in successful for: \(email)")
         return authResponse
     }
 
@@ -179,7 +179,7 @@ public actor AuthClient {
     /// Sign out current user
     public func signOut() async throws {
         try await storage.deleteSession()
-        logger.debug("[Auth] User signed out")
+        logger.debug("User signed out")
 
         // Notify listener about auth state change (nil = signed out)
         await onAuthStateChange?(nil)
@@ -193,8 +193,8 @@ public actor AuthClient {
         let requestHeaders = try await getAuthHeaders()
 
         // Log request
-        logger.debug("[Auth] GET \(endpoint.absoluteString)")
-        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.debug("GET \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
 
         let response = try await httpClient.execute(
             .get,
@@ -204,9 +204,9 @@ public actor AuthClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[Auth] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
         if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("[Auth] Response body: \(responseString)")
+            logger.trace("Response body: \(responseString)")
         }
 
         struct UserResponse: Codable {
@@ -214,7 +214,7 @@ public actor AuthClient {
         }
 
         let userResponse = try response.decode(UserResponse.self)
-        logger.debug("[Auth] Got current user: \(userResponse.user.email)")
+        logger.debug("Got current user: \(userResponse.user.email)")
         return userResponse.user
     }
 
@@ -246,11 +246,11 @@ public actor AuthClient {
         ]
 
         guard let authURL = components.url else {
-            logger.error("[Auth] Failed to construct sign-in URL")
+            logger.error("Failed to construct sign-in URL")
             return
         }
 
-        logger.debug("[Auth] Opening sign-in page: \(authURL)")
+        logger.debug("Opening sign-in page: \(authURL)")
 
         #if os(macOS)
         await NSWorkspace.shared.open(authURL)
@@ -266,12 +266,12 @@ public actor AuthClient {
     /// - Parameter callbackURL: The URL received from authentication callback
     /// - Returns: AuthResponse with user and session
     public func handleAuthCallback(_ callbackURL: URL) async throws -> AuthResponse {
-        logger.debug("[Auth] Handling auth callback: \(callbackURL.absoluteString)")
+        logger.debug("Handling auth callback: \(callbackURL.absoluteString)")
 
         // Parse callback URL parameters
         guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
               let queryItems = components.queryItems else {
-            logger.error("[Auth] Invalid callback URL")
+            logger.error("Invalid callback URL")
             throw InsForgeError.invalidURL
         }
 
@@ -286,7 +286,7 @@ public actor AuthClient {
         guard let accessToken = params["access_token"],
               let userId = params["user_id"],
               let email = params["email"] else {
-            logger.error("[Auth] Missing required parameters in callback URL")
+            logger.error("Missing required parameters in callback URL")
             throw InsForgeError.invalidResponse
         }
 
@@ -317,7 +317,7 @@ public actor AuthClient {
         // Notify listener about auth state change
         await onAuthStateChange?(session)
 
-        logger.debug("[Auth] Auth callback handled successfully for: \(email)")
+        logger.debug("Auth callback handled successfully for: \(email)")
 
         // Return auth response
         return AuthResponse(
@@ -340,9 +340,9 @@ public actor AuthClient {
         let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
         // Log request
-        logger.debug("[Auth] POST \(endpoint.absoluteString)")
-        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
-        logger.trace("[Auth] Request body: email=\(email)")
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("Request body: email=\(email)")
 
         let response = try await httpClient.execute(
             .post,
@@ -353,9 +353,9 @@ public actor AuthClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[Auth] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
 
-        logger.debug("[Auth] Verification email sent to: \(email)")
+        logger.debug("Verification email sent to: \(email)")
     }
 
     /// Verify email with OTP code
@@ -371,9 +371,9 @@ public actor AuthClient {
         let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
         // Log request (don't log OTP)
-        logger.debug("[Auth] POST \(endpoint.absoluteString)")
-        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
-        logger.trace("[Auth] Request body: email=\(email ?? "nil")")
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("Request body: email=\(email ?? "nil")")
 
         let response = try await httpClient.execute(
             .post,
@@ -384,9 +384,9 @@ public actor AuthClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[Auth] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
         if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("[Auth] Response body: \(responseString)")
+            logger.trace("Response body: \(responseString)")
         }
 
         let authResponse = try response.decode(AuthResponse.self)
@@ -399,7 +399,7 @@ public actor AuthClient {
             ))
         }
 
-        logger.debug("[Auth] Email verified successfully")
+        logger.debug("Email verified successfully")
         return authResponse
     }
 
@@ -412,8 +412,8 @@ public actor AuthClient {
         let endpoint = url.appendingPathComponent("profiles/\(userId)")
 
         // Log request
-        logger.debug("[Auth] GET \(endpoint.absoluteString)")
-        logger.trace("[Auth] Request headers: \(headers.filter { $0.key != "Authorization" })")
+        logger.debug("GET \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
 
         let response = try await httpClient.execute(
             .get,
@@ -423,13 +423,13 @@ public actor AuthClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[Auth] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
         if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("[Auth] Response body: \(responseString)")
+            logger.trace("Response body: \(responseString)")
         }
 
         let profile = try response.decode(Profile.self)
-        logger.debug("[Auth] Fetched profile for user: \(userId)")
+        logger.debug("Fetched profile for user: \(userId)")
         return profile
     }
 
@@ -444,10 +444,10 @@ public actor AuthClient {
         let requestHeaders = try await getAuthHeaders().merging(["Content-Type": "application/json"]) { $1 }
 
         // Log request
-        logger.debug("[Auth] PATCH \(endpoint.absoluteString)")
-        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.debug("PATCH \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
         if let bodyString = String(data: data, encoding: .utf8) {
-            logger.trace("[Auth] Request body: \(bodyString)")
+            logger.trace("Request body: \(bodyString)")
         }
 
         let response = try await httpClient.execute(
@@ -459,13 +459,13 @@ public actor AuthClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[Auth] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
         if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("[Auth] Response body: \(responseString)")
+            logger.trace("Response body: \(responseString)")
         }
 
         let updatedProfile = try response.decode(Profile.self)
-        logger.debug("[Auth] Updated current user's profile")
+        logger.debug("Updated current user's profile")
         return updatedProfile
     }
 
@@ -480,9 +480,9 @@ public actor AuthClient {
         let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
         // Log request
-        logger.debug("[Auth] POST \(endpoint.absoluteString)")
-        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
-        logger.trace("[Auth] Request body: email=\(email)")
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("Request body: email=\(email)")
 
         let response = try await httpClient.execute(
             .post,
@@ -493,9 +493,9 @@ public actor AuthClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[Auth] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
 
-        logger.debug("[Auth] Password reset email sent to: \(email)")
+        logger.debug("Password reset email sent to: \(email)")
     }
 
     /// Reset password with OTP token
@@ -510,8 +510,8 @@ public actor AuthClient {
         let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
         // Log request (don't log OTP or password)
-        logger.debug("[Auth] POST \(endpoint.absoluteString)")
-        logger.trace("[Auth] Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
 
         let response = try await httpClient.execute(
             .post,
@@ -522,9 +522,9 @@ public actor AuthClient {
 
         // Log response
         let statusCode = response.response.statusCode
-        logger.debug("[Auth] Response: \(statusCode)")
+        logger.debug("Response: \(statusCode)")
 
-        logger.debug("[Auth] Password reset successful")
+        logger.debug("Password reset successful")
     }
 
     // MARK: - Private Helpers
