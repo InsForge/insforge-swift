@@ -10,8 +10,11 @@ struct TwitterCloneApp: App {
             ContentView()
                 .environmentObject(authViewModel)
                 .onOpenURL { url in
-                    Task {
-                        await authViewModel.handleAuthCallback(url: url)
+                    // Handle OAuth callback
+                    if url.scheme == AuthViewModel.oauthCallbackScheme {
+                        Task {
+                            await authViewModel.handleOAuthCallback(url: url)
+                        }
                     }
                 }
         }

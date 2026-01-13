@@ -142,6 +142,76 @@ class AuthViewModel: ObservableObject {
         }
     }
 
+    // MARK: - OAuth Sign In
+
+    /// URL scheme for OAuth callback (must match Info.plist CFBundleURLSchemes)
+    static let oauthCallbackScheme = "twitterclone"
+    static let oauthRedirectURL = "\(oauthCallbackScheme)://auth/callback"
+
+    /// Sign in with OAuth provider (opens browser)
+    func signInWithOAuth() async {
+        await client.auth.signInWithDefaultView(redirectTo: Self.oauthRedirectURL)
+    }
+
+    /// Handle OAuth callback and create profile if needed
+    func handleOAuthCallback(url: URL) async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            let response = try await client.auth.handleAuthCallback(url)
+            self.currentUser = response.user
+            self.isAuthenticated = true
+
+            // Check if profile exists, if not create one
+            await loadOrCreateProfile(user: response.user)
+        } catch {
+            errorMessage = "OAuth sign in failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Load existing profile or create new one for OAuth users
+    private func loadOrCreateProfile(user: InsForgeAuth.User) async {
+        do {
+            let profiles: [Profile] = try await client.database
+                .from("profiles")
+                .select()
+                .eq("user_id", value: user.id)
+                .execute()
+
+            if let profile = profiles.first {
+                self.currentProfile = profile
+            } else {
+                // Create profile for new OAuth user
+                let username = generateUsername(from: user.email)
+                let displayName = user.name ?? username
+
+                let profileInsert = ProfileInsert(
+                    userId: user.id,
+                    username: username,
+                    displayName: displayName
+                )
+
+                let _: ProfileInsert = try await client.database
+                    .from("profiles")
+                    .insert(profileInsert)
+
+                await loadProfile()
+            }
+        } catch {
+            print("Failed to load/create profile: \(error)")
+        }
+    }
+
+    /// Generate a username from email
+    private func generateUsername(from email: String) -> String {
+        let base = email.components(separatedBy: "@").first ?? "user"
+        let cleaned = base.lowercased().replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
+        let timestamp = Int(Date().timeIntervalSince1970) % 10000
+        return "\(cleaned)\(timestamp)"
+    }
+
     // MARK: - Password Reset
 
     func sendPasswordReset(email: String) async -> Bool {

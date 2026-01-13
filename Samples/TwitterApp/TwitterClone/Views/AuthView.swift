@@ -91,6 +91,37 @@ struct SignInView: View {
             .foregroundColor(.secondary)
             .font(.subheadline)
 
+            // Divider with "or"
+            HStack {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(height: 1)
+                Text("or")
+                    .foregroundColor(.secondary)
+                    .font(.subheadline)
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(height: 1)
+            }
+            .padding(.vertical, 5)
+
+            // OAuth Sign In Button
+            Button(action: {
+                Task {
+                    await authViewModel.signInWithOAuth()
+                }
+            }) {
+                HStack(spacing: 12) {
+                    Image(systemName: "globe")
+                        .font(.title3)
+                    Text("Continue with Google / GitHub")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+            }
+            .buttonStyle(.bordered)
+            .tint(.primary)
+
             Button("Don't have an account? Sign Up") {
                 isSignUp = true
             }
