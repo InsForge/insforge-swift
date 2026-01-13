@@ -1,0 +1,144 @@
+import Foundation
+import SwiftUI
+import InsForge
+import InsForgeAuth
+
+@MainActor
+class AuthViewModel: ObservableObject {
+    @Published var currentUser: InsForgeAuth.User?
+    @Published var currentProfile: Profile?
+    @Published var isLoading = false
+    @Published var isAuthenticated = false
+    @Published var errorMessage: String?
+
+    private var client: InsForgeClient { insforge }
+
+    init() {
+        Task {
+            await checkSession()
+        }
+    }
+
+    func checkSession() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let user = try await client.auth.getCurrentUser()
+            self.currentUser = user
+            self.isAuthenticated = true
+            await loadProfile()
+        } catch {
+            print("Session check failed: \(error)")
+        }
+    }
+
+    func signUp(email: String, password: String, username: String, displayName: String) async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            let result = try await client.auth.signUp(
+                email: email,
+                password: password,
+                name: displayName
+            )
+
+            self.currentUser = result.user
+            self.isAuthenticated = true
+
+            // Create profile
+            let profileInsert = ProfileInsert(
+                userId: result.user.id,
+                username: username,
+                displayName: displayName
+            )
+
+            let _: ProfileInsert = try await client.database
+                .from("profiles")
+                .insert(profileInsert)
+
+            await loadProfile()
+        } catch {
+            errorMessage = "Sign up failed: \(error.localizedDescription)"
+        }
+    }
+
+    func signIn(email: String, password: String) async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            let result = try await client.auth.signIn(
+                email: email,
+                password: password
+            )
+
+            self.currentUser = result.user
+            self.isAuthenticated = true
+            await loadProfile()
+        } catch {
+            errorMessage = "Sign in failed: \(error.localizedDescription)"
+        }
+    }
+
+    func signOut() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            try await client.auth.signOut()
+            self.currentUser = nil
+            self.currentProfile = nil
+            self.isAuthenticated = false
+        } catch {
+            errorMessage = "Sign out failed: \(error.localizedDescription)"
+        }
+    }
+
+    func handleAuthCallback(url: URL) async {
+        do {
+            let response = try await client.auth.handleAuthCallback(url)
+            self.currentUser = response.user
+            self.isAuthenticated = true
+            await loadProfile()
+        } catch {
+            errorMessage = "Auth callback failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func loadProfile() async {
+        guard let userId = currentUser?.id else { return }
+
+        do {
+            let profiles: [Profile] = try await client.database
+                .from("profiles")
+                .select()
+                .eq("user_id", value: userId)
+                .execute()
+
+            if let profile = profiles.first {
+                self.currentProfile = profile
+            }
+        } catch {
+            print("Failed to load profile: \(error)")
+        }
+    }
+
+    func updateProfile(_ update: ProfileUpdate) async {
+        guard let userId = currentUser?.id else { return }
+
+        do {
+            let _: [ProfileUpdate] = try await client.database
+                .from("profiles")
+                .eq("user_id", value: userId)
+                .update(update)
+
+            await loadProfile()
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+        }
+    }
+}
