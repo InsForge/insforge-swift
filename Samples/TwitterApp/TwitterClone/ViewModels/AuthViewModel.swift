@@ -141,4 +141,34 @@ class AuthViewModel: ObservableObject {
             errorMessage = "Failed to update profile: \(error.localizedDescription)"
         }
     }
+
+    // MARK: - Password Reset
+
+    func sendPasswordReset(email: String) async -> Bool {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            try await client.auth.sendPasswordReset(email: email)
+            return true
+        } catch {
+            errorMessage = "Failed to send reset email: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func resetPassword(otp: String, newPassword: String) async -> Bool {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            try await client.auth.resetPassword(otp: otp, newPassword: newPassword)
+            return true
+        } catch {
+            errorMessage = "Failed to reset password: \(error.localizedDescription)"
+            return false
+        }
+    }
 }
