@@ -106,6 +106,22 @@ class InsForgeService: ObservableObject {
         await client.auth.signInWithDefaultView(redirectTo: "todoapp://auth/callback")
     }
 
+    /// Sign in with Google OAuth
+    func signInWithGoogle() async throws {
+        try await client.auth.signInWithOAuthView(
+            provider: .google,
+            redirectTo: "todoapp://auth/callback"
+        )
+    }
+
+    /// Sign in with GitHub OAuth
+    func signInWithGitHub() async throws {
+        try await client.auth.signInWithOAuthView(
+            provider: .github,
+            redirectTo: "todoapp://auth/callback"
+        )
+    }
+
     /// Handle OAuth callback and authenticate user
     func handleOAuthCallback(_ url: URL) async throws {
         print("[InsForgeService] handleOAuthCallback called with URL: \(url)")

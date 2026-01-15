@@ -89,17 +89,39 @@ struct AuthView: View {
             .frame(maxWidth: 300)
             .padding(.vertical, 8)
 
-            // OAuth Sign In button
-            Button(action: handleOAuthSignIn) {
+            // Google Sign In button
+            Button(action: handleGoogleSignIn) {
                 HStack {
-                    Image(systemName: "globe")
-                    Text("Sign In with OAuth")
+                    Image(systemName: "g.circle.fill")
+                    Text("Sign In with Google")
                 }
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
             .frame(maxWidth: 300)
-            .help("Sign in using Google, GitHub, or other OAuth providers")
+
+            // GitHub Sign In button
+            Button(action: handleGitHubSignIn) {
+                HStack {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    Text("Sign In with GitHub")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .frame(maxWidth: 300)
+
+            // Generic OAuth Sign In button
+            Button(action: handleOAuthSignIn) {
+                HStack {
+                    Image(systemName: "globe")
+                    Text("Sign In with Other")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .frame(maxWidth: 300)
+            .help("Sign in using other OAuth providers")
 
             // Toggle sign up/in
             Button(action: { isSignUp.toggle() }) {
@@ -163,6 +185,32 @@ struct AuthView: View {
         Task {
             print("[AuthView] Opening OAuth sign-in page...")
             await service.signInWithOAuth()
+        }
+    }
+
+    private func handleGoogleSignIn() {
+        Task {
+            errorMessage = nil
+            print("[AuthView] Opening Google sign-in page...")
+            do {
+                try await service.signInWithGoogle()
+            } catch {
+                print("[AuthView] Google sign-in error: \(error)")
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func handleGitHubSignIn() {
+        Task {
+            errorMessage = nil
+            print("[AuthView] Opening GitHub sign-in page...")
+            do {
+                try await service.signInWithGitHub()
+            } catch {
+                print("[AuthView] GitHub sign-in error: \(error)")
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

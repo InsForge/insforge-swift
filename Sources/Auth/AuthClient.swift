@@ -234,6 +234,80 @@ public actor AuthClient {
 
     // MARK: - OAuth / Default Page Sign In
 
+    /// Supported OAuth providers
+    public enum OAuthProvider: String, Sendable {
+        case google
+        case github
+        case discord
+        case linkedin
+        case facebook
+        case instagram
+        case tiktok
+        case apple
+        case x
+        case spotify
+        case microsoft
+    }
+
+    /// Sign in with a specific OAuth provider
+    /// Opens the browser to authenticate with the specified provider (Google, GitHub, etc.)
+    /// - Parameters:
+    ///   - provider: The OAuth provider to use
+    ///   - redirectTo: Callback URL where auth result will be sent
+    public func signInWithOAuthView(provider: OAuthProvider, redirectTo: String) async throws {
+        // Build endpoint: /api/auth/oauth/{provider}?redirect_uri=xxx
+        let endpoint = url.appendingPathComponent("oauth/\(provider.rawValue)")
+
+        var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "redirect_uri", value: redirectTo)
+        ]
+
+        guard let requestURL = components.url else {
+            logger.error("Failed to construct OAuth URL")
+            throw InsForgeError.invalidURL
+        }
+
+        // Log request
+        logger.debug("GET \(requestURL.absoluteString)")
+        logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
+
+        // Call API to get authUrl
+        let response = try await httpClient.execute(
+            .get,
+            url: requestURL,
+            headers: headers
+        )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        // Parse response to get authUrl
+        struct OAuthURLResponse: Codable {
+            let authUrl: String
+        }
+
+        let oauthResponse = try response.decode(OAuthURLResponse.self)
+
+        guard let authURL = URL(string: oauthResponse.authUrl) else {
+            logger.error("Invalid authUrl in response: \(oauthResponse.authUrl)")
+            throw InsForgeError.invalidURL
+        }
+
+        logger.debug("Opening OAuth page for \(provider.rawValue): \(authURL)")
+
+        // Open browser
+        #if os(macOS)
+        await NSWorkspace.shared.open(authURL)
+        #elseif os(iOS) || os(tvOS)
+        await UIApplication.shared.open(authURL)
+        #endif
+    }
+
     /// Sign in using InsForge's default web authentication page
     /// Opens the browser to authenticate with OAuth (Google, GitHub, etc.) or email+password
     /// - Parameter redirectTo: Callback URL where auth result will be sent
