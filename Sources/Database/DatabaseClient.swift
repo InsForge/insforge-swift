@@ -103,6 +103,39 @@ public actor DatabaseClient {
             decoder: decoder
         )
     }
+
+    // MARK: - RPC
+
+    /// Call a PostgreSQL function (RPC).
+    ///
+    /// - Parameters:
+    ///   - fn: The name of the database function to call.
+    ///   - args: Optional dictionary of arguments to pass to the function.
+    ///   - options: Optional RPC options (head, get, count).
+    /// - Returns: An `RPCBuilder` for executing the RPC call.
+    ///
+    /// ## Example
+    /// ```swift
+    /// // Call a function with parameters
+    /// let stats: UserStats = try await client.database
+    ///     .rpc("get_user_stats", args: ["user_id": 123])
+    ///     .execute()
+    ///
+    /// // Call a function with no parameters
+    /// let users: [User] = try await client.database
+    ///     .rpc("get_all_active_users")
+    ///     .execute()
+    /// ```
+    public func rpc(_ fn: String, args: [String: Any]? = nil) -> RPCBuilder {
+        RPCBuilder(
+            url: url.appendingPathComponent("rpc").appendingPathComponent(fn),
+            headersProvider: headersProvider,
+            httpClient: httpClient,
+            encoder: encoder,
+            decoder: decoder,
+            args: args
+        )
+    }
 }
 
 /// Query builder for database operations.
@@ -547,5 +580,133 @@ public struct QueryBuilder: Sendable {
         if let responseString = String(data: response.data, encoding: .utf8), !responseString.isEmpty {
             logger.trace("Response body: \(responseString)")
         }
+    }
+}
+
+// MARK: - RPC Builder
+
+/// Builder for executing PostgreSQL RPC (Remote Procedure Call) functions.
+///
+/// Provides a simple interface for calling database functions with optional parameters.
+public struct RPCBuilder: Sendable {
+    private let url: URL
+    private let headersProvider: LockIsolated<[String: String]>
+    private let httpClient: HTTPClient
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+    private let argsData: Data?
+
+    /// Logger for debug output
+    private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
+
+    /// Get current headers (dynamically fetched to reflect auth state changes)
+    private var headers: [String: String] {
+        headersProvider.value
+    }
+
+    init(
+        url: URL,
+        headersProvider: LockIsolated<[String: String]>,
+        httpClient: HTTPClient,
+        encoder: JSONEncoder,
+        decoder: JSONDecoder,
+        args: [String: Any]?
+    ) {
+        self.url = url
+        self.headersProvider = headersProvider
+        self.httpClient = httpClient
+        self.encoder = encoder
+        self.decoder = decoder
+        // Convert args to Data immediately to maintain Sendable conformance
+        if let args = args {
+            self.argsData = try? JSONSerialization.data(withJSONObject: args)
+        } else {
+            self.argsData = nil
+        }
+    }
+
+    // MARK: - Execute
+
+    /// Executes the RPC call and returns decoded results as an array.
+    /// - Returns: An array of decoded objects.
+    /// - Throws: `InsForgeError` if the RPC call fails.
+    public func execute<T: Decodable>() async throws -> [T] {
+        var requestHeaders = headers
+        requestHeaders["Content-Type"] = "application/json"
+
+        // Log request
+        logger.debug("POST \(url.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let argsData = argsData, let bodyString = String(data: argsData, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
+        let response = try await httpClient.execute(
+            .post,
+            url: url,
+            headers: requestHeaders,
+            body: argsData
+        )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        // Try to decode as array first, then wrap single object in array
+        if let arrayData = try? decoder.decode([T].self, from: response.data) {
+            logger.debug("RPC returned \(arrayData.count) result(s)")
+            return arrayData
+        } else if let singleData = try? decoder.decode(T.self, from: response.data) {
+            logger.debug("RPC returned 1 result")
+            return [singleData]
+        } else {
+            // Try decoding as array again to get proper error message
+            let data = try decoder.decode([T].self, from: response.data)
+            return data
+        }
+    }
+
+    /// Executes the RPC call and returns a single decoded result.
+    /// - Returns: A single decoded object.
+    /// - Throws: `InsForgeError` if the RPC call fails or no result is returned.
+    public func executeSingle<T: Decodable>() async throws -> T {
+        let results: [T] = try await execute()
+        guard let first = results.first else {
+            throw InsForgeError.unknown("RPC returned no results")
+        }
+        return first
+    }
+
+    /// Executes the RPC call without expecting a return value.
+    /// - Throws: `InsForgeError` if the RPC call fails.
+    public func execute() async throws {
+        var requestHeaders = headers
+        requestHeaders["Content-Type"] = "application/json"
+
+        // Log request
+        logger.debug("POST \(url.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let argsData = argsData, let bodyString = String(data: argsData, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
+        let response = try await httpClient.execute(
+            .post,
+            url: url,
+            headers: requestHeaders,
+            body: argsData
+        )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8), !responseString.isEmpty {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        logger.debug("RPC executed successfully")
     }
 }
