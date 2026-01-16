@@ -26,6 +26,17 @@ public actor AIClient {
     // MARK: - Chat Completion
 
     /// Generate chat completion
+    /// - Parameters:
+    ///   - model: OpenRouter model identifier (e.g., "openai/gpt-4")
+    ///   - messages: Array of chat messages
+    ///   - stream: Enable streaming response via Server-Sent Events
+    ///   - temperature: Controls randomness in generation (0-2)
+    ///   - maxTokens: Maximum number of tokens to generate
+    ///   - topP: Nucleus sampling parameter (0-1)
+    ///   - systemPrompt: System prompt to guide model behavior
+    ///   - webSearch: Web search plugin configuration
+    ///   - fileParser: File parser plugin configuration for PDFs
+    ///   - thinking: Enable extended reasoning capabilities (Anthropic models only)
     public func chatCompletion(
         model: String,
         messages: [ChatMessage],
@@ -33,7 +44,10 @@ public actor AIClient {
         temperature: Double? = nil,
         maxTokens: Int? = nil,
         topP: Double? = nil,
-        systemPrompt: String? = nil
+        systemPrompt: String? = nil,
+        webSearch: WebSearchPlugin? = nil,
+        fileParser: FileParserPlugin? = nil,
+        thinking: Bool? = nil
     ) async throws -> ChatCompletionResponse {
         let endpoint = url.appendingPathComponent("chat/completion")
 
@@ -54,6 +68,15 @@ public actor AIClient {
         }
         if let systemPrompt = systemPrompt {
             body["systemPrompt"] = systemPrompt
+        }
+        if let webSearch = webSearch {
+            body["webSearch"] = webSearch.toDictionary()
+        }
+        if let fileParser = fileParser {
+            body["fileParser"] = fileParser.toDictionary()
+        }
+        if let thinking = thinking {
+            body["thinking"] = thinking
         }
 
         let data = try JSONSerialization.data(withJSONObject: body)
@@ -188,6 +211,88 @@ public actor AIClient {
     }
 }
 
+// MARK: - Plugin Models
+
+/// Web search plugin configuration
+public struct WebSearchPlugin: Codable, Sendable {
+    public let enabled: Bool
+    public let engine: Engine?
+    public let maxResults: Int?
+    public let searchPrompt: String?
+
+    public enum Engine: String, Codable, Sendable {
+        case native
+        case exa
+    }
+
+    public init(
+        enabled: Bool = true,
+        engine: Engine? = nil,
+        maxResults: Int? = nil,
+        searchPrompt: String? = nil
+    ) {
+        self.enabled = enabled
+        self.engine = engine
+        self.maxResults = maxResults
+        self.searchPrompt = searchPrompt
+    }
+
+    func toDictionary() -> [String: Any] {
+        var dict: [String: Any] = ["enabled": enabled]
+        if let engine = engine {
+            dict["engine"] = engine.rawValue
+        }
+        if let maxResults = maxResults {
+            dict["maxResults"] = maxResults
+        }
+        if let searchPrompt = searchPrompt {
+            dict["searchPrompt"] = searchPrompt
+        }
+        return dict
+    }
+}
+
+/// File parser plugin configuration
+public struct FileParserPlugin: Codable, Sendable {
+    public let enabled: Bool
+    public let pdf: PDFConfig?
+
+    public struct PDFConfig: Codable, Sendable {
+        public let engine: Engine?
+
+        public enum Engine: String, Codable, Sendable {
+            case pdfText = "pdf-text"
+            case mistralOcr = "mistral-ocr"
+            case native
+        }
+
+        public init(engine: Engine? = nil) {
+            self.engine = engine
+        }
+
+        func toDictionary() -> [String: Any] {
+            var dict: [String: Any] = [:]
+            if let engine = engine {
+                dict["engine"] = engine.rawValue
+            }
+            return dict
+        }
+    }
+
+    public init(enabled: Bool = true, pdf: PDFConfig? = nil) {
+        self.enabled = enabled
+        self.pdf = pdf
+    }
+
+    func toDictionary() -> [String: Any] {
+        var dict: [String: Any] = ["enabled": enabled]
+        if let pdf = pdf {
+            dict["pdf"] = pdf.toDictionary()
+        }
+        return dict
+    }
+}
+
 // MARK: - Chat Models
 
 /// Chat message
@@ -217,10 +322,12 @@ public struct ChatMessage: Codable, Sendable {
 /// Chat completion response
 public struct ChatCompletionResponse: Codable, Sendable {
     public let text: String
+    public let annotations: [UrlCitationAnnotation]?
     public let metadata: Metadata?
 
     enum CodingKeys: String, CodingKey {
         case text
+        case annotations
         case metadata
     }
 
@@ -231,6 +338,20 @@ public struct ChatCompletionResponse: Codable, Sendable {
     public struct Metadata: Codable, Sendable {
         public let model: String
         public let usage: TokenUsage?
+    }
+}
+
+/// URL citation annotation from web search results
+public struct UrlCitationAnnotation: Codable, Sendable {
+    public let type: String
+    public let urlCitation: UrlCitation?
+
+    public struct UrlCitation: Codable, Sendable {
+        public let url: String
+        public let title: String?
+        public let content: String?
+        public let startIndex: Int?
+        public let endIndex: Int?
     }
 }
 

@@ -304,6 +304,8 @@ public actor AuthClient {
         #if os(macOS)
         await NSWorkspace.shared.open(authURL)
         #elseif os(iOS) || os(tvOS)
+        // for tvOS, https://appkey.region.insforge.app/auth/callback should not respond.
+        // It is only used to capture the URL opened by the system.
         await UIApplication.shared.open(authURL)
         #endif
     }
