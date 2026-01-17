@@ -8,6 +8,35 @@ import InsForgeAI
 import InsForgeRealtime
 import Logging
 
+// MARK: - Auth Token Refresh Handler
+
+/// Token refresh handler that wraps AuthClient for automatic 401 handling.
+internal struct AuthTokenRefreshHandler: TokenRefreshHandler, Sendable {
+    private let authClient: AuthClient
+    private let headersProvider: LockIsolated<[String: String]>
+
+    init(authClient: AuthClient, headersProvider: LockIsolated<[String: String]>) {
+        self.authClient = authClient
+        self.headersProvider = headersProvider
+    }
+
+    func refreshToken() async throws -> String {
+        let response = try await authClient.refreshAccessToken()
+        guard let newToken = response.accessToken else {
+            throw InsForgeError.authenticationRequired
+        }
+        // Update shared headers with new token
+        headersProvider.withValue { headers in
+            headers["Authorization"] = "Bearer \(newToken)"
+        }
+        return newToken
+    }
+
+    func getCurrentToken() async -> String? {
+        return try? await authClient.getAccessToken()
+    }
+}
+
 /// Main InsForge client following the Supabase pattern
 public final class InsForgeClient: Sendable {
     /// The logger instance for this client
@@ -26,6 +55,8 @@ public final class InsForgeClient: Sendable {
     /// Headers shared across all requests (thread-safe, dynamically updated)
     private let _headers: LockIsolated<[String: String]>
 
+    /// Token refresh handler for automatic 401 retry
+    private let _tokenRefreshHandler: AuthTokenRefreshHandler
 
     // MARK: - Sub-clients
 
@@ -82,6 +113,12 @@ public final class InsForgeClient: Sendable {
             options: options.auth
         )
 
+        // Initialize token refresh handler for automatic 401 retry
+        self._tokenRefreshHandler = AuthTokenRefreshHandler(
+            authClient: self._auth,
+            headersProvider: self._headers
+        )
+
         // Capture logger for use in closure
         let log = self.logger
 
@@ -124,7 +161,8 @@ public final class InsForgeClient: Sendable {
                 state.database = DatabaseClient(
                     url: baseURL.appendingPathComponent("api/database"),
                     headersProvider: _headers,
-                    options: options.database
+                    options: options.database,
+                    tokenRefreshHandler: _tokenRefreshHandler
                 )
             }
             return state.database!
@@ -138,7 +176,8 @@ public final class InsForgeClient: Sendable {
             if state.storage == nil {
                 state.storage = StorageClient(
                     url: baseURL.appendingPathComponent("api/storage"),
-                    headersProvider: _headers
+                    headersProvider: _headers,
+                    tokenRefreshHandler: _tokenRefreshHandler
                 )
             }
             return state.storage!
@@ -152,7 +191,8 @@ public final class InsForgeClient: Sendable {
             if state.functions == nil {
                 state.functions = FunctionsClient(
                     url: baseURL.appendingPathComponent("functions"),
-                    headersProvider: _headers
+                    headersProvider: _headers,
+                    tokenRefreshHandler: _tokenRefreshHandler
                 )
             }
             return state.functions!
@@ -166,7 +206,8 @@ public final class InsForgeClient: Sendable {
             if state.ai == nil {
                 state.ai = AIClient(
                     url: baseURL.appendingPathComponent("api/ai"),
-                    headersProvider: _headers
+                    headersProvider: _headers,
+                    tokenRefreshHandler: _tokenRefreshHandler
                 )
             }
             return state.ai!

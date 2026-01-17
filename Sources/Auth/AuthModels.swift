@@ -47,15 +47,31 @@ public struct Profile: Codable, Sendable {
     }
 }
 
+// MARK: - Client Type
+
+/// Client type for authentication requests
+public enum ClientType: String, Sendable {
+    case web
+    case mobile
+    case desktop
+}
+
 // MARK: - Session
 
 /// Authentication session
 public struct Session: Codable, Sendable {
     public let accessToken: String
+    public let refreshToken: String?
     public let user: User
 
     enum CodingKeys: String, CodingKey {
-        case accessToken, user
+        case accessToken, refreshToken, user
+    }
+
+    public init(accessToken: String, refreshToken: String? = nil, user: User) {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+        self.user = user
     }
 }
 
@@ -65,11 +81,29 @@ public struct Session: Codable, Sendable {
 public struct AuthResponse: Codable, Sendable {
     public let user: User
     public let accessToken: String?
+    public let refreshToken: String?
     public let requireEmailVerification: Bool?
     public let redirectTo: String?
+    public let csrfToken: String?
 
     enum CodingKeys: String, CodingKey {
-        case user, accessToken, requireEmailVerification, redirectTo
+        case user, accessToken, refreshToken, requireEmailVerification, redirectTo, csrfToken
+    }
+
+    public init(
+        user: User,
+        accessToken: String? = nil,
+        refreshToken: String? = nil,
+        requireEmailVerification: Bool? = nil,
+        redirectTo: String? = nil,
+        csrfToken: String? = nil
+    ) {
+        self.user = user
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+        self.requireEmailVerification = requireEmailVerification
+        self.redirectTo = redirectTo
+        self.csrfToken = csrfToken
     }
 }
 

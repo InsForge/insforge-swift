@@ -73,22 +73,26 @@ public actor DatabaseClient {
     private let httpClient: HTTPClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let tokenRefreshHandler: (any TokenRefreshHandler)?
 
     /// Creates a new database client.
     /// - Parameters:
     ///   - url: The base URL of the database API.
     ///   - headersProvider: A thread-safe provider for HTTP headers.
     ///   - options: Optional database configuration options.
+    ///   - tokenRefreshHandler: Optional handler for automatic token refresh on 401 errors.
     public init(
         url: URL,
         headersProvider: LockIsolated<[String: String]>,
-        options: DatabaseOptions = DatabaseOptions()
+        options: DatabaseOptions = DatabaseOptions(),
+        tokenRefreshHandler: (any TokenRefreshHandler)? = nil
     ) {
         self.url = url
         self.headersProvider = headersProvider
         self.httpClient = HTTPClient()
         self.encoder = options.encoder
         self.decoder = options.decoder
+        self.tokenRefreshHandler = tokenRefreshHandler
     }
 
     /// Creates a query builder for the specified table.
@@ -100,7 +104,8 @@ public actor DatabaseClient {
             headersProvider: headersProvider,
             httpClient: httpClient,
             encoder: encoder,
-            decoder: decoder
+            decoder: decoder,
+            tokenRefreshHandler: tokenRefreshHandler
         )
     }
 
@@ -133,7 +138,8 @@ public actor DatabaseClient {
             httpClient: httpClient,
             encoder: encoder,
             decoder: decoder,
-            args: args
+            args: args,
+            tokenRefreshHandler: tokenRefreshHandler
         )
     }
 }
@@ -148,6 +154,7 @@ public struct QueryBuilder: Sendable {
     private let httpClient: HTTPClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let tokenRefreshHandler: (any TokenRefreshHandler)?
     private var queryItems: [URLQueryItem] = []
     private var preferHeader: String?
     private var countOption: CountOption?
@@ -166,13 +173,15 @@ public struct QueryBuilder: Sendable {
         headersProvider: LockIsolated<[String: String]>,
         httpClient: HTTPClient,
         encoder: JSONEncoder,
-        decoder: JSONDecoder
+        decoder: JSONDecoder,
+        tokenRefreshHandler: (any TokenRefreshHandler)? = nil
     ) {
         self.url = url
         self.headersProvider = headersProvider
         self.httpClient = httpClient
         self.encoder = encoder
         self.decoder = decoder
+        self.tokenRefreshHandler = tokenRefreshHandler
     }
 
     // MARK: - Query Modifiers
@@ -205,6 +214,31 @@ public struct QueryBuilder: Sendable {
         builder.head = head
         builder.countOption = count
         return builder
+    }
+
+    /// Helper to execute HTTP request with optional auto-refresh
+    private func executeRequest(
+        _ method: HTTPMethod,
+        url: URL,
+        headers: [String: String],
+        body: Data? = nil
+    ) async throws -> HTTPResponse {
+        if let handler = tokenRefreshHandler {
+            return try await httpClient.executeWithAutoRefresh(
+                method,
+                url: url,
+                headers: headers,
+                body: body,
+                refreshHandler: handler
+            )
+        } else {
+            return try await httpClient.execute(
+                method,
+                url: url,
+                headers: headers,
+                body: body
+            )
+        }
     }
 
     /// Filters by equality.
@@ -398,7 +432,7 @@ public struct QueryBuilder: Sendable {
         logger.debug("\(method.rawValue) \(requestURL.absoluteString)")
         logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             method,
             url: requestURL,
             headers: requestHeaders
@@ -475,7 +509,7 @@ public struct QueryBuilder: Sendable {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await builder.httpClient.execute(
+        let response = try await builder.executeRequest(
             .post,
             url: builder.url,
             headers: requestHeaders,
@@ -533,7 +567,7 @@ public struct QueryBuilder: Sendable {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .patch,
             url: requestURL,
             headers: requestHeaders,
@@ -568,7 +602,7 @@ public struct QueryBuilder: Sendable {
         logger.debug("DELETE \(requestURL.absoluteString)")
         logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .delete,
             url: requestURL,
             headers: headers
@@ -595,6 +629,7 @@ public struct RPCBuilder: Sendable {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let argsData: Data?
+    private let tokenRefreshHandler: (any TokenRefreshHandler)?
 
     /// Logger for debug output
     private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
@@ -610,7 +645,8 @@ public struct RPCBuilder: Sendable {
         httpClient: HTTPClient,
         encoder: JSONEncoder,
         decoder: JSONDecoder,
-        args: [String: Any]?
+        args: [String: Any]?,
+        tokenRefreshHandler: (any TokenRefreshHandler)? = nil
     ) {
         self.url = url
         self.headersProvider = headersProvider
@@ -622,6 +658,32 @@ public struct RPCBuilder: Sendable {
             self.argsData = try? JSONSerialization.data(withJSONObject: args)
         } else {
             self.argsData = nil
+        }
+        self.tokenRefreshHandler = tokenRefreshHandler
+    }
+
+    /// Helper to execute HTTP request with optional auto-refresh
+    private func executeRequest(
+        _ method: HTTPMethod,
+        url: URL,
+        headers: [String: String],
+        body: Data? = nil
+    ) async throws -> HTTPResponse {
+        if let handler = tokenRefreshHandler {
+            return try await httpClient.executeWithAutoRefresh(
+                method,
+                url: url,
+                headers: headers,
+                body: body,
+                refreshHandler: handler
+            )
+        } else {
+            return try await httpClient.execute(
+                method,
+                url: url,
+                headers: headers,
+                body: body
+            )
         }
     }
 
@@ -641,7 +703,7 @@ public struct RPCBuilder: Sendable {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .post,
             url: url,
             headers: requestHeaders,
@@ -693,7 +755,7 @@ public struct RPCBuilder: Sendable {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .post,
             url: url,
             headers: requestHeaders,

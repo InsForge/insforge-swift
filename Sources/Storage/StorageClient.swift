@@ -106,6 +106,7 @@ public actor StorageClient {
     private let url: URL
     private let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
+    private let tokenRefreshHandler: (any TokenRefreshHandler)?
     private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Get current headers (dynamically fetched to reflect auth state changes)
@@ -115,11 +116,38 @@ public actor StorageClient {
 
     public init(
         url: URL,
-        headersProvider: LockIsolated<[String: String]>
+        headersProvider: LockIsolated<[String: String]>,
+        tokenRefreshHandler: (any TokenRefreshHandler)? = nil
     ) {
         self.url = url
         self.headersProvider = headersProvider
         self.httpClient = HTTPClient()
+        self.tokenRefreshHandler = tokenRefreshHandler
+    }
+
+    /// Helper to execute HTTP request with optional auto-refresh
+    private func executeRequest(
+        _ method: HTTPMethod,
+        url: URL,
+        headers: [String: String],
+        body: Data? = nil
+    ) async throws -> HTTPResponse {
+        if let handler = tokenRefreshHandler {
+            return try await httpClient.executeWithAutoRefresh(
+                method,
+                url: url,
+                headers: headers,
+                body: body,
+                refreshHandler: handler
+            )
+        } else {
+            return try await httpClient.execute(
+                method,
+                url: url,
+                headers: headers,
+                body: body
+            )
+        }
     }
 
     /// Get a file API reference for a bucket
@@ -130,7 +158,8 @@ public actor StorageClient {
             bucketId: id,
             url: url,
             headersProvider: headersProvider,
-            httpClient: httpClient
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
     }
 
@@ -152,7 +181,7 @@ public actor StorageClient {
         logger.debug("GET \(endpoint.absoluteString)")
         logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .get,
             url: endpoint,
             headers: headers
@@ -180,7 +209,7 @@ public actor StorageClient {
         logger.debug("GET \(endpoint.absoluteString)")
         logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .get,
             url: endpoint,
             headers: headers
@@ -220,7 +249,7 @@ public actor StorageClient {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .post,
             url: endpoint,
             headers: requestHeaders,
@@ -258,7 +287,7 @@ public actor StorageClient {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .patch,
             url: endpoint,
             headers: requestHeaders,
@@ -284,7 +313,7 @@ public actor StorageClient {
         logger.debug("DELETE \(endpoint.absoluteString)")
         logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .delete,
             url: endpoint,
             headers: headers
@@ -309,6 +338,7 @@ public struct StorageFileApi: Sendable {
     private let url: URL
     private let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
+    private let tokenRefreshHandler: (any TokenRefreshHandler)?
     private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Get current headers (dynamically fetched to reflect auth state changes)
@@ -320,12 +350,39 @@ public struct StorageFileApi: Sendable {
         bucketId: String,
         url: URL,
         headersProvider: LockIsolated<[String: String]>,
-        httpClient: HTTPClient
+        httpClient: HTTPClient,
+        tokenRefreshHandler: (any TokenRefreshHandler)? = nil
     ) {
         self.bucketId = bucketId
         self.url = url
         self.headersProvider = headersProvider
         self.httpClient = httpClient
+        self.tokenRefreshHandler = tokenRefreshHandler
+    }
+
+    /// Helper to execute HTTP request with optional auto-refresh
+    private func executeRequest(
+        _ method: HTTPMethod,
+        url: URL,
+        headers: [String: String],
+        body: Data? = nil
+    ) async throws -> HTTPResponse {
+        if let handler = tokenRefreshHandler {
+            return try await httpClient.executeWithAutoRefresh(
+                method,
+                url: url,
+                headers: headers,
+                body: body,
+                refreshHandler: handler
+            )
+        } else {
+            return try await httpClient.execute(
+                method,
+                url: url,
+                headers: headers,
+                body: body
+            )
+        }
     }
 
     // MARK: - Upload
@@ -574,7 +631,7 @@ public struct StorageFileApi: Sendable {
         logger.debug("GET \(requestURL.absoluteString)")
         logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .get,
             url: requestURL,
             headers: headers
@@ -621,7 +678,7 @@ public struct StorageFileApi: Sendable {
         logger.debug("DELETE \(endpoint.absoluteString)")
         logger.trace("Request headers: \(headers.filter { $0.key != "Authorization" })")
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .delete,
             url: endpoint,
             headers: headers
@@ -686,7 +743,7 @@ public struct StorageFileApi: Sendable {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .post,
             url: endpoint,
             headers: requestHeaders,
@@ -746,7 +803,7 @@ public struct StorageFileApi: Sendable {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .post,
             url: endpoint,
             headers: requestHeaders,
@@ -794,7 +851,7 @@ public struct StorageFileApi: Sendable {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .post,
             url: endpoint,
             headers: requestHeaders,

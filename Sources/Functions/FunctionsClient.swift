@@ -7,6 +7,7 @@ public actor FunctionsClient {
     private let url: URL
     private let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
+    private let tokenRefreshHandler: (any TokenRefreshHandler)?
     private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Get current headers (dynamically fetched to reflect auth state changes)
@@ -16,11 +17,38 @@ public actor FunctionsClient {
 
     public init(
         url: URL,
-        headersProvider: LockIsolated<[String: String]>
+        headersProvider: LockIsolated<[String: String]>,
+        tokenRefreshHandler: (any TokenRefreshHandler)? = nil
     ) {
         self.url = url
         self.headersProvider = headersProvider
         self.httpClient = HTTPClient()
+        self.tokenRefreshHandler = tokenRefreshHandler
+    }
+
+    /// Helper to execute HTTP request with optional auto-refresh
+    private func executeRequest(
+        _ method: HTTPMethod,
+        url: URL,
+        headers: [String: String],
+        body: Data? = nil
+    ) async throws -> HTTPResponse {
+        if let handler = tokenRefreshHandler {
+            return try await httpClient.executeWithAutoRefresh(
+                method,
+                url: url,
+                headers: headers,
+                body: body,
+                refreshHandler: handler
+            )
+        } else {
+            return try await httpClient.execute(
+                method,
+                url: url,
+                headers: headers,
+                body: body
+            )
+        }
     }
 
     /// Invoke a function
@@ -44,7 +72,7 @@ public actor FunctionsClient {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .post,
             url: endpoint,
             headers: requestHeaders,
@@ -80,7 +108,7 @@ public actor FunctionsClient {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .post,
             url: endpoint,
             headers: requestHeaders,
@@ -116,7 +144,7 @@ public actor FunctionsClient {
             logger.trace("Request body: \(bodyString)")
         }
 
-        let response = try await httpClient.execute(
+        let response = try await executeRequest(
             .post,
             url: endpoint,
             headers: requestHeaders,

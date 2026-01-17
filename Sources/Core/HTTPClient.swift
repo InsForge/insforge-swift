@@ -5,6 +5,23 @@ import Logging
 import FoundationNetworking
 #endif
 
+// MARK: - Token Refresh Handler
+
+/// Protocol for handling automatic token refresh on 401 errors.
+///
+/// Implement this protocol to provide automatic token refresh capability
+/// when access tokens expire during API requests.
+public protocol TokenRefreshHandler: Sendable {
+    /// Attempts to refresh the access token.
+    /// - Returns: The new access token if refresh was successful.
+    /// - Throws: An error if token refresh fails (e.g., refresh token expired).
+    func refreshToken() async throws -> String
+
+    /// Returns the current access token without refreshing.
+    /// - Returns: The current access token if available.
+    func getCurrentToken() async -> String?
+}
+
 /// HTTP method types supported by the client.
 public enum HTTPMethod: String {
     /// HTTP GET method.
@@ -171,6 +188,113 @@ public actor HTTPClient {
         }
 
         return httpResponseObj
+    }
+
+    // MARK: - Auto-Refresh Execution
+
+    /// Executes an HTTP request with automatic token refresh on 401 errors.
+    ///
+    /// If the request fails with a 401 status code, this method will attempt to
+    /// refresh the access token using the provided handler and retry the request
+    /// with the new token.
+    ///
+    /// - Parameters:
+    ///   - method: The HTTP method to use.
+    ///   - url: The URL to request.
+    ///   - headers: HTTP headers. The Authorization header will be updated with refreshed token.
+    ///   - body: Optional request body data.
+    ///   - refreshHandler: The handler responsible for refreshing the token.
+    /// - Returns: An `HTTPResponse` containing the response data.
+    /// - Throws: `InsForgeError` if the request fails after retry, or if token refresh fails.
+    public func executeWithAutoRefresh(
+        _ method: HTTPMethod,
+        url: URL,
+        headers: [String: String],
+        body: Data? = nil,
+        refreshHandler: TokenRefreshHandler
+    ) async throws -> HTTPResponse {
+        do {
+            // First attempt with current headers
+            return try await execute(method, url: url, headers: headers, body: body)
+        } catch let error as InsForgeError {
+            // Check if it's a 401 unauthorized error
+            if case .httpError(let statusCode, _, _, _) = error, statusCode == 401 {
+                logger.debug("Received 401, attempting token refresh...")
+
+                // Try to refresh the token
+                do {
+                    let newToken = try await refreshHandler.refreshToken()
+                    logger.debug("Token refreshed successfully, retrying request...")
+
+                    // Update headers with new token and retry
+                    var updatedHeaders = headers
+                    updatedHeaders["Authorization"] = "Bearer \(newToken)"
+
+                    return try await execute(method, url: url, headers: updatedHeaders, body: body)
+                } catch {
+                    logger.error("Token refresh failed: \(error)")
+                    // Re-throw the original 401 error or auth required error
+                    throw InsForgeError.authenticationRequired
+                }
+            }
+
+            // Not a 401 error, re-throw original error
+            throw error
+        }
+    }
+
+    /// Uploads multipart form data with automatic token refresh on 401 errors.
+    ///
+    /// If the upload fails with a 401 status code, this method will attempt to
+    /// refresh the access token using the provided handler and retry the upload
+    /// with the new token.
+    ///
+    /// - Parameters:
+    ///   - url: The URL to upload to.
+    ///   - method: The HTTP method to use. Defaults to `.put`.
+    ///   - headers: HTTP headers. The Authorization header will be updated with refreshed token.
+    ///   - file: The file data to upload.
+    ///   - fileName: The name of the file.
+    ///   - mimeType: The MIME type of the file.
+    ///   - refreshHandler: The handler responsible for refreshing the token.
+    /// - Returns: An `HTTPResponse` containing the response data.
+    /// - Throws: `InsForgeError` if the upload fails after retry, or if token refresh fails.
+    public func uploadWithAutoRefresh(
+        url: URL,
+        method: HTTPMethod = .put,
+        headers: [String: String],
+        file: Data,
+        fileName: String,
+        mimeType: String,
+        refreshHandler: TokenRefreshHandler
+    ) async throws -> HTTPResponse {
+        do {
+            // First attempt with current headers
+            return try await upload(url: url, method: method, headers: headers, file: file, fileName: fileName, mimeType: mimeType)
+        } catch let error as InsForgeError {
+            // Check if it's a 401 unauthorized error
+            if case .httpError(let statusCode, _, _, _) = error, statusCode == 401 {
+                logger.debug("Received 401 during upload, attempting token refresh...")
+
+                // Try to refresh the token
+                do {
+                    let newToken = try await refreshHandler.refreshToken()
+                    logger.debug("Token refreshed successfully, retrying upload...")
+
+                    // Update headers with new token and retry
+                    var updatedHeaders = headers
+                    updatedHeaders["Authorization"] = "Bearer \(newToken)"
+
+                    return try await upload(url: url, method: method, headers: updatedHeaders, file: file, fileName: fileName, mimeType: mimeType)
+                } catch {
+                    logger.error("Token refresh failed during upload: \(error)")
+                    throw InsForgeError.authenticationRequired
+                }
+            }
+
+            // Not a 401 error, re-throw original error
+            throw error
+        }
     }
 }
 
