@@ -73,7 +73,9 @@ public actor AuthClient {
     private let clientType: ClientType
     private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
-    /// In-memory access token (refreshed frequently, not persisted)
+    /// In-memory access token cache
+    /// - For new backend (with refreshToken): short-lived, refreshed automatically
+    /// - For legacy backend (no refreshToken): restored from persisted session on app launch
     private var currentAccessToken: String?
 
     /// Current PKCE helper for OAuth flow (temporary, cleared after use)
@@ -102,12 +104,19 @@ public actor AuthClient {
         self.onAuthStateChange = listener
     }
 
-    /// Get current access token (from memory or refresh if needed)
+    /// Get current access token (from memory or storage)
+    ///
+    /// Token retrieval strategy:
+    /// 1. Return in-memory token if available
+    /// 2. Fall back to persisted session's accessToken
+    ///
+    /// Note: For automatic token refresh on 401 errors, use the TokenRefreshHandler
+    /// which is automatically configured in InsForgeClient for all API clients.
     public func getAccessToken() async throws -> String? {
         if let token = currentAccessToken {
             return token
         }
-        // Try to refresh from stored session
+        // Try to restore from stored session
         if let session = try await storage.getSession() {
             currentAccessToken = session.accessToken
             return session.accessToken
@@ -169,7 +178,9 @@ public actor AuthClient {
             // Store access token in memory
             currentAccessToken = accessToken
 
-            // Only persist refreshToken (accessToken is kept in memory only)
+            // Persist session with both tokens
+            // - accessToken: always persisted (for legacy backend compatibility & app restart)
+            // - refreshToken: persisted if available (new backend with token refresh support)
             let session = Session(
                 accessToken: accessToken,
                 refreshToken: authResponse.refreshToken,
@@ -235,6 +246,9 @@ public actor AuthClient {
             // Store access token in memory
             currentAccessToken = accessToken
 
+            // Persist session with both tokens
+            // - accessToken: always persisted (for legacy backend compatibility & app restart)
+            // - refreshToken: persisted if available (new backend with token refresh support)
             let session = Session(
                 accessToken: accessToken,
                 refreshToken: authResponse.refreshToken,
@@ -468,7 +482,9 @@ public actor AuthClient {
         // Store access token in memory
         currentAccessToken = accessToken
 
-        // Save session
+        // Persist session with both tokens
+        // - accessToken: always persisted (for legacy backend compatibility & app restart)
+        // - refreshToken: persisted if available (new backend with token refresh support)
         let session = Session(
             accessToken: accessToken,
             refreshToken: refreshToken,
@@ -545,6 +561,9 @@ public actor AuthClient {
             // Store access token in memory
             currentAccessToken = accessToken
 
+            // Persist session with both tokens
+            // - accessToken: always persisted (for legacy backend compatibility & app restart)
+            // - refreshToken: persisted if available (new backend with token refresh support)
             let session = Session(
                 accessToken: accessToken,
                 refreshToken: authResponse.refreshToken,
@@ -635,14 +654,17 @@ public actor AuthClient {
             // Store access token in memory
             currentAccessToken = accessToken
 
-            try await storage.saveSession(Session(
+            // Persist session with both tokens
+            // - accessToken: always persisted (for legacy backend compatibility & app restart)
+            // - refreshToken: persisted if available (new backend with token refresh support)
+            let session = Session(
                 accessToken: accessToken,
                 refreshToken: authResponse.refreshToken,
                 user: authResponse.user
-            ))
+            )
+            try await storage.saveSession(session)
 
             // Notify listener about auth state change
-            let session = Session(accessToken: accessToken, refreshToken: authResponse.refreshToken, user: authResponse.user)
             await onAuthStateChange?(session)
         }
 
@@ -834,10 +856,12 @@ public actor AuthClient {
             // Store new access token in memory
             currentAccessToken = newAccessToken
 
-            // Save new session with updated tokens
+            // Persist session with updated tokens
+            // - accessToken: always persisted (for legacy backend compatibility & app restart)
+            // - refreshToken: use new one if provided, otherwise keep the old one
             let newSession = Session(
                 accessToken: newAccessToken,
-                refreshToken: authResponse.refreshToken ?? refreshToken, // Use new refresh token if provided
+                refreshToken: authResponse.refreshToken ?? refreshToken,
                 user: authResponse.user
             )
             try await storage.saveSession(newSession)
