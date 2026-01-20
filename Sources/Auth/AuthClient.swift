@@ -341,6 +341,10 @@ public actor AuthClient {
         let pkce = PKCEHelper.generate()
         pendingPKCE = pkce
 
+        // Persist PKCE verifier to storage (survives app restart during OAuth flow)
+        try await storage.savePKCEVerifier(pkce.codeVerifier)
+        logger.trace("Saved PKCE verifier to storage")
+
         // Build endpoint: /api/auth/oauth/{provider}?redirect_uri=xxx&code_challenge=xxx
         let endpoint = url.appendingPathComponent("oauth/\(provider.rawValue)")
 
@@ -403,6 +407,9 @@ public actor AuthClient {
         // Generate PKCE code verifier and challenge
         let pkce = PKCEHelper.generate()
         pendingPKCE = pkce
+
+        // Persist PKCE verifier to storage (survives app restart during OAuth flow)
+        try? await storage.savePKCEVerifier(pkce.codeVerifier)
 
         let endpoint = authComponent.appendingPathComponent("sign-in")
 
@@ -510,14 +517,25 @@ public actor AuthClient {
     /// - Parameter code: The authorization code received from OAuth callback
     /// - Returns: AuthResponse with user and tokens
     public func exchangeCodeForTokens(code: String) async throws -> AuthResponse {
-        guard let pkce = pendingPKCE else {
+        // Try in-memory PKCE first, then fall back to stored PKCE (for app restart during OAuth)
+        var codeVerifier: String?
+
+        if let pkce = pendingPKCE {
+            codeVerifier = pkce.codeVerifier
+            logger.trace("Using in-memory PKCE verifier")
+        } else if let storedVerifier = try await storage.getPKCEVerifier() {
+            codeVerifier = storedVerifier
+            logger.trace("Restored PKCE verifier from storage")
+        }
+
+        guard let verifier = codeVerifier else {
             logger.error("No pending PKCE flow found")
             throw InsForgeError.invalidResponse
         }
 
-        // Clear pending PKCE
-        let codeVerifier = pkce.codeVerifier
+        // Clear pending PKCE from both memory and storage
         pendingPKCE = nil
+        try? await storage.deletePKCEVerifier()
 
         var components = URLComponents(url: url.appendingPathComponent("oauth/exchange"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
@@ -530,7 +548,7 @@ public actor AuthClient {
 
         let body: [String: String] = [
             "code": code,
-            "code_verifier": codeVerifier
+            "code_verifier": verifier
         ]
 
         let data = try JSONSerialization.data(withJSONObject: body)
