@@ -282,32 +282,19 @@ public actor AuthClient {
     // MARK: - Get Current User
 
     /// Get current authenticated user
+    /// Automatically refreshes access token if it has expired (401 response)
     public func getCurrentUser() async throws -> User {
-        let endpoint = url.appendingPathComponent("sessions/current")
-        let requestHeaders = try await getAuthHeaders()
-
-        // Log request
-        logger.debug("GET \(endpoint.absoluteString)")
-        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
-
-        let response = try await httpClient.execute(
-            .get,
-            url: endpoint,
-            headers: requestHeaders
-        )
-
-        // Log response
-        let statusCode = response.response.statusCode
-        logger.debug("Response: \(statusCode)")
-        if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("Response body: \(responseString)")
-        }
-
         struct UserResponse: Codable {
             let user: User
         }
 
-        let userResponse = try response.decode(UserResponse.self)
+        let endpoint = url.appendingPathComponent("sessions/current")
+        let userResponse: UserResponse = try await executeAuthenticatedRequest(
+            method: .get,
+            endpoint: endpoint,
+            responseType: UserResponse.self
+        )
+
         logger.debug("Got current user: \(userResponse.user.email)")
         return userResponse.user
     }
@@ -721,6 +708,7 @@ public actor AuthClient {
     }
 
     /// Update current user's profile
+    /// Automatically refreshes access token if it has expired (401 response)
     /// - Parameter profile: Dictionary containing profile fields to update (name, avatar_url, and any custom fields)
     /// - Returns: Updated Profile
     public func updateProfile(_ profile: [String: Any]) async throws -> Profile {
@@ -728,30 +716,15 @@ public actor AuthClient {
 
         let body: [String: Any] = ["profile": profile]
         let data = try JSONSerialization.data(withJSONObject: body)
-        let requestHeaders = try await getAuthHeaders().merging(["Content-Type": "application/json"]) { $1 }
 
-        // Log request
-        logger.debug("PATCH \(endpoint.absoluteString)")
-        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
-        if let bodyString = String(data: data, encoding: .utf8) {
-            logger.trace("Request body: \(bodyString)")
-        }
-
-        let response = try await httpClient.execute(
-            .patch,
-            url: endpoint,
-            headers: requestHeaders,
-            body: data
+        let updatedProfile: Profile = try await executeAuthenticatedRequest(
+            method: .patch,
+            endpoint: endpoint,
+            body: data,
+            additionalHeaders: ["Content-Type": "application/json"],
+            responseType: Profile.self
         )
 
-        // Log response
-        let statusCode = response.response.statusCode
-        logger.debug("Response: \(statusCode)")
-        if let responseString = String(data: response.data, encoding: .utf8) {
-            logger.trace("Response body: \(responseString)")
-        }
-
-        let updatedProfile = try response.decode(Profile.self)
         logger.debug("Updated current user's profile")
         return updatedProfile
     }
@@ -836,7 +809,7 @@ public actor AuthClient {
             throw InsForgeError.invalidURL
         }
 
-        let body = ["refreshToken": refreshToken]
+        let body = ["refresh_token": refreshToken]
         let data = try JSONSerialization.data(withJSONObject: body)
         let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
 
@@ -907,5 +880,77 @@ public actor AuthClient {
 
         currentAccessToken = session.accessToken
         return headers.merging(["Authorization": "Bearer \(session.accessToken)"]) { $1 }
+    }
+
+    /// Execute an authenticated request with automatic token refresh on 401 errors
+    private func executeAuthenticatedRequest<T: Decodable>(
+        method: HTTPMethod,
+        endpoint: URL,
+        body: Data? = nil,
+        additionalHeaders: [String: String] = [:],
+        responseType: T.Type
+    ) async throws -> T {
+        var requestHeaders = try await getAuthHeaders()
+        requestHeaders.merge(additionalHeaders) { $1 }
+
+        logger.debug("\(method.rawValue) \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let body = body, let bodyString = String(data: body, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
+        do {
+            let response = try await httpClient.execute(
+                method,
+                url: endpoint,
+                headers: requestHeaders,
+                body: body
+            )
+
+            let statusCode = response.response.statusCode
+            logger.debug("Response: \(statusCode)")
+            if let responseString = String(data: response.data, encoding: .utf8) {
+                logger.trace("Response body: \(responseString)")
+            }
+
+            return try response.decode(T.self)
+        } catch {
+            // Check if it's a 401 error and autoRefreshToken is enabled
+            if autoRefreshToken,
+               case InsForgeError.httpError(let statusCode, _, _, _) = error,
+               statusCode == 401 {
+                logger.debug("Received 401, attempting token refresh...")
+
+                // Try to refresh token
+                do {
+                    _ = try await refreshAccessToken()
+                } catch {
+                    logger.error("Token refresh failed: \(error.localizedDescription)")
+                    throw error
+                }
+
+                // Retry with new token
+                var newHeaders = try await getAuthHeaders()
+                newHeaders.merge(additionalHeaders) { $1 }
+                logger.debug("Retrying request with refreshed token...")
+
+                let retryResponse = try await httpClient.execute(
+                    method,
+                    url: endpoint,
+                    headers: newHeaders,
+                    body: body
+                )
+
+                let statusCode = retryResponse.response.statusCode
+                logger.debug("Retry response: \(statusCode)")
+                if let responseString = String(data: retryResponse.data, encoding: .utf8) {
+                    logger.trace("Retry response body: \(responseString)")
+                }
+
+                return try retryResponse.decode(T.self)
+            }
+
+            throw error
+        }
     }
 }
