@@ -14,6 +14,7 @@ class InsForgeService: ObservableObject {
     @Published var isAuthenticated = false
 
     private let client: InsForgeClient
+    private let logger = Logger(label: "com.insforge.todoapp.service")
 
     private init() {
         // Load configuration from Config.swift
@@ -60,18 +61,54 @@ class InsForgeService: ObservableObject {
 
     // MARK: - Authentication
 
-    func signUp(email: String, password: String, name: String) async throws {
-        print("[InsForgeService] signUp called for email: \(email)")
+    /// Sign up result indicating whether email verification is required
+    enum SignUpResult {
+        case success(User)
+        case requiresEmailVerification
+    }
+
+    func signUp(email: String, password: String, name: String) async throws -> SignUpResult {
+        logger.debug("signUp called for email: \(email)")
         let response = try await client.auth.signUp(
             email: email,
             password: password,
             name: name
         )
-        print("[InsForgeService] signUp response received, user ID: \(response.user.id)")
+
+        // Check if email verification is required
+        if response.needsEmailVerification {
+            logger.info("signUp requires email verification for: \(email)")
+            return .requiresEmailVerification
+        }
+
+        // Email verification not required, user is signed in
+        guard let user = response.user else {
+            throw NSError(domain: "TodoApp", code: 5, userInfo: [NSLocalizedDescriptionKey: "Sign up failed: no user returned"])
+        }
+
+        logger.info("signUp successful, user ID: \(user.id)")
         // Note: Auth headers are automatically updated by SDK
+
+        self.currentUser = user
+        self.isAuthenticated = true
+        return .success(user)
+    }
+
+    /// Verify email with OTP code after sign up
+    func verifyEmail(email: String, code: String) async throws {
+        logger.debug("verifyEmail called for email: \(email)")
+        let response = try await client.auth.verifyEmail(email: email, otp: code)
+        logger.info("Email verified, user ID: \(response.user.id)")
 
         self.currentUser = response.user
         self.isAuthenticated = true
+    }
+
+    /// Resend email verification code
+    func resendVerificationEmail(email: String) async throws {
+        logger.debug("resendVerificationEmail called for email: \(email)")
+        try await client.auth.sendEmailVerification(email: email)
+        logger.info("Verification email sent to: \(email)")
     }
 
     func signIn(email: String, password: String) async throws {

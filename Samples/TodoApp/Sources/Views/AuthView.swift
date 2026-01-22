@@ -9,6 +9,7 @@ struct AuthView: View {
     @State private var name = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var successMessage: String?
     @FocusState private var focusedField: Field?
 
     enum Field: Hashable {
@@ -55,6 +56,15 @@ struct AuthView: View {
             .onAppear {
                 // Auto-focus first field
                 focusedField = isSignUp ? .name : .email
+            }
+
+            // Success message (e.g., email verification required)
+            if let successMessage = successMessage {
+                Text(successMessage)
+                    .foregroundColor(.green)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
             }
 
             // Error message
@@ -142,6 +152,7 @@ struct AuthView: View {
         Task {
             isLoading = true
             errorMessage = nil
+            successMessage = nil
 
             print("[AuthView] Starting authentication: \(isSignUp ? "Sign Up" : "Sign In")")
             print("[AuthView] Email: \(email)")
@@ -149,8 +160,19 @@ struct AuthView: View {
             do {
                 if isSignUp {
                     print("[AuthView] Calling signUp...")
-                    try await service.signUp(email: email, password: password, name: name)
-                    print("[AuthView] Sign up successful!")
+                    let result = try await service.signUp(email: email, password: password, name: name)
+
+                    switch result {
+                    case .success:
+                        print("[AuthView] Sign up successful!")
+                    case .requiresEmailVerification:
+                        print("[AuthView] Sign up requires email verification")
+                        successMessage = "Sign up successful! Please check your email (\(email)) to verify your account before signing in."
+                        // Switch to sign in mode so user can sign in after verification
+                        isSignUp = false
+                        // Clear password for security
+                        password = ""
+                    }
                 } else {
                     print("[AuthView] Calling signIn...")
                     try await service.signIn(email: email, password: password)

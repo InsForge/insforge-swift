@@ -107,6 +107,46 @@ public struct AuthResponse: Codable, Sendable {
     }
 }
 
+// MARK: - SignUpResponse
+
+/// Sign up response - may require email verification before returning user/session
+public struct SignUpResponse: Codable, Sendable {
+    /// User object (nil when email verification is required)
+    public let user: User?
+    /// Access token (nil when email verification is required)
+    public let accessToken: String?
+    /// Refresh token (nil when email verification is required)
+    public let refreshToken: String?
+    /// Indicates if email verification is required before sign-in
+    public let requireEmailVerification: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case user, accessToken, refreshToken, requireEmailVerification
+    }
+
+    /// Check if email verification is required
+    public var needsEmailVerification: Bool {
+        requireEmailVerification == true
+    }
+
+    /// Check if sign up completed with session (no verification required)
+    public var hasSession: Bool {
+        accessToken != nil && user != nil
+    }
+
+    public init(
+        user: User? = nil,
+        accessToken: String? = nil,
+        refreshToken: String? = nil,
+        requireEmailVerification: Bool? = nil
+    ) {
+        self.user = user
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+        self.requireEmailVerification = requireEmailVerification
+    }
+}
+
 // MARK: - OAuth Provider
 
 /// OAuth provider types

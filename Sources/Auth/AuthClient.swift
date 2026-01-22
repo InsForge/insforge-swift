@@ -127,11 +127,21 @@ public actor AuthClient {
     // MARK: - Sign Up
 
     /// Register a new user with email and password
+    ///
+    /// - Parameters:
+    ///   - email: User's email address
+    ///   - password: User's password
+    ///   - name: Optional display name
+    /// - Returns: SignUpResponse which may indicate email verification is required
+    ///
+    /// When `requireEmailVerification` is true, the user needs to verify their email
+    /// before they can sign in. Use `verifyEmail(email:code:)` for code-based verification
+    /// or the user can click the link sent to their email for link-based verification.
     public func signUp(
         email: String,
         password: String,
         name: String? = nil
-    ) async throws -> AuthResponse {
+    ) async throws -> SignUpResponse {
         var components = URLComponents(url: url.appendingPathComponent("users"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "client_type", value: clientType.rawValue)
@@ -171,20 +181,24 @@ public actor AuthClient {
             logger.trace("Response body: \(responseString)")
         }
 
-        let authResponse = try response.decode(AuthResponse.self)
+        let signUpResponse = try response.decode(SignUpResponse.self)
 
-        // Save session if token is provided
-        if let accessToken = authResponse.accessToken {
+        // Check if email verification is required
+        if signUpResponse.needsEmailVerification {
+            logger.debug("Sign up requires email verification for: \(email)")
+            return signUpResponse
+        }
+
+        // Save session if token is provided (no verification required)
+        if let accessToken = signUpResponse.accessToken, let user = signUpResponse.user {
             // Store access token in memory
             currentAccessToken = accessToken
 
             // Persist session with both tokens
-            // - accessToken: always persisted (for legacy backend compatibility & app restart)
-            // - refreshToken: persisted if available (new backend with token refresh support)
             let session = Session(
                 accessToken: accessToken,
-                refreshToken: authResponse.refreshToken,
-                user: authResponse.user
+                refreshToken: signUpResponse.refreshToken,
+                user: user
             )
             try await storage.saveSession(session)
 
@@ -193,7 +207,7 @@ public actor AuthClient {
         }
 
         logger.debug("Sign up successful for: \(email)")
-        return authResponse
+        return signUpResponse
     }
 
     // MARK: - Sign In

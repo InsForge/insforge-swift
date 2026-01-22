@@ -1,75 +1,33 @@
 import Foundation
-import UserNotifications
 
 @MainActor
 class ReminderService: ObservableObject {
     static let shared = ReminderService()
 
-    private let notificationCenter = UNUserNotificationCenter.current()
-
     private init() {}
 
-    // Request notification permission
+    // Request notification permission (no-op for now)
     func requestAuthorization() async throws {
-        let granted = try await notificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
-        if !granted {
-            throw NSError(
-                domain: "ReminderService",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Notification permission denied"]
-            )
-        }
+        // TODO: Implement when bundleIdentifier is available
     }
 
-    // Schedule a reminder for a todo
+    // Schedule a reminder for a todo (no-op for now)
     func scheduleReminder(for todo: Todo) async throws {
-        guard let reminderDate = todo.reminderDate else { return }
-
-        // Remove existing notification if any
-        await cancelReminder(for: todo.id)
-
-        // Only schedule if reminder is in the future
-        guard reminderDate > Date() else { return }
-
-        let content = UNMutableNotificationContent()
-        content.title = "Todo Reminder"
-        content.body = todo.title
-        content.sound = .default
-
-        if let description = todo.description {
-            content.subtitle = description
-        }
-
-        // Create trigger
-        let components = Calendar.current.dateComponents(
-            [.year, .month, .day, .hour, .minute],
-            from: reminderDate
-        )
-        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-
-        // Create request
-        let request = UNNotificationRequest(
-            identifier: todo.id,
-            content: content,
-            trigger: trigger
-        )
-
-        try await notificationCenter.add(request)
+        // TODO: Implement when bundleIdentifier is available
     }
 
-    // Cancel a reminder
+    // Cancel a reminder (no-op for now)
     func cancelReminder(for todoId: String) async {
-        notificationCenter.removePendingNotificationRequests(withIdentifiers: [todoId])
+        // TODO: Implement when bundleIdentifier is available
     }
 
-    // Cancel all reminders
+    // Cancel all reminders (no-op for now)
     func cancelAllReminders() async {
-        notificationCenter.removeAllPendingNotificationRequests()
+        // TODO: Implement when bundleIdentifier is available
     }
 
-    // Get pending reminders count
+    // Get pending reminders count (no-op for now)
     func getPendingRemindersCount() async -> Int {
-        let requests = await notificationCenter.pendingNotificationRequests()
-        return requests.count
+        return 0
     }
 }
