@@ -20,7 +20,7 @@ final class InsForgeAITests: XCTestCase {
     private let insForgeURL = "https://pg6afqz9.us-east.insforge.app"
 
     /// Your InsForge API key
-    private let apiKey = "ik_ca177fcf1e2e72e8d1e0c2c23dbe3b79"
+    private let apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3OC0xMjM0LTU2NzgtOTBhYi1jZGVmMTIzNDU2NzgiLCJlbWFpbCI6ImFub25AaW5zZm9yZ2UuY29tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5MDc5MzJ9.K0semVtcacV55qeEhVUI3WKWzT7p87JU7wNzdXysRWo"
 
     // MARK: - Helper
 
@@ -323,6 +323,100 @@ final class InsForgeAITests: XCTestCase {
             print("✅ Correctly threw error for empty messages: \(error)")
         }
     }
+
+    // MARK: - Embeddings Tests
+
+    /// Test embeddings generation with single text input
+    func testGenerateEmbeddingsSingleText() async throws {
+        print("🔵 Testing generateEmbeddings with single text...")
+
+        let response = try await insForgeClient.ai.generateEmbeddings(
+            model: "google/gemini-embedding-001",
+            input: .single("Hello world")
+        )
+
+        // Verify response structure
+        XCTAssertEqual(response.object, "list")
+        XCTAssertFalse(response.data.isEmpty)
+        XCTAssertEqual(response.data.count, 1)
+
+        let embedding = response.data[0]
+        XCTAssertEqual(embedding.object, "embedding")
+        XCTAssertEqual(embedding.index, 0)
+        XCTAssertFalse(embedding.embedding.isEmpty)
+
+        print("✅ Single text embedding successful")
+        print("   Embedding dimensions: \(embedding.embedding.count)")
+        if let metadata = response.metadata {
+            print("   Model: \(metadata.model)")
+            if let usage = metadata.usage {
+                print("   Tokens: \(usage.totalTokens)")
+            }
+        }
+    }
+
+    /// Test embeddings generation with multiple text inputs
+    func testGenerateEmbeddingsMultipleTexts() async throws {
+        print("🔵 Testing generateEmbeddings with multiple texts...")
+
+        let texts = ["Hello", "World", "Swift SDK"]
+        let response = try await insForgeClient.ai.generateEmbeddings(
+            model: "google/gemini-embedding-001",
+            input: .multiple(texts)
+        )
+
+        // Verify response structure
+        XCTAssertEqual(response.object, "list")
+        XCTAssertEqual(response.data.count, texts.count)
+
+        // Verify each embedding
+        for (index, embedding) in response.data.enumerated() {
+            XCTAssertEqual(embedding.object, "embedding")
+            XCTAssertEqual(embedding.index, index)
+            XCTAssertFalse(embedding.embedding.isEmpty)
+            print("   Index \(embedding.index): \(embedding.embedding.count) dimensions")
+        }
+
+        print("✅ Multiple texts embedding successful")
+        print("   Generated \(response.data.count) embeddings")
+    }
+
+    /// Test embeddings generation with encoding format parameter
+    func testGenerateEmbeddingsWithEncodingFormat() async throws {
+        print("🔵 Testing generateEmbeddings with encoding format...")
+
+        let response = try await insForgeClient.ai.generateEmbeddings(
+            model: "google/gemini-embedding-001",
+            input: .single("Test encoding format"),
+            encodingFormat: .float
+        )
+
+        XCTAssertEqual(response.object, "list")
+        XCTAssertFalse(response.data.isEmpty)
+
+        let embedding = response.data[0]
+        XCTAssertFalse(embedding.embedding.isEmpty)
+
+        print("✅ Embedding with encoding format successful")
+        print("   Embedding dimensions: \(embedding.embedding.count)")
+    }
+
+    /// Test embeddings error handling for invalid model
+    func testGenerateEmbeddingsInvalidModel() async throws {
+        print("🔵 Testing generateEmbeddings with invalid model...")
+
+        do {
+            _ = try await insForgeClient.ai.generateEmbeddings(
+                model: "invalid-embedding-model-12345",
+                input: .single("Test")
+            )
+            XCTFail("Should have thrown an error for invalid model")
+        } catch {
+            print("✅ Correctly threw error for invalid model: \(error)")
+        }
+    }
+
+    // MARK: - Workflow Tests
 
     /// Test complete AI workflow
     func testCompleteAIWorkflow() async throws {

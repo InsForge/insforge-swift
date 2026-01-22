@@ -187,6 +187,66 @@ public actor AIClient {
 
     // MARK: - Models
 
+    // MARK: - Embeddings
+
+    /// Generate embeddings for text input
+    /// - Parameters:
+    ///   - model: Embedding model identifier (e.g., "google/gemini-embedding-001")
+    ///   - input: Single text string or array of text strings to embed
+    ///   - encodingFormat: Format for embeddings output ("float" or "base64"), defaults to "float"
+    ///   - dimensions: Optional number of dimensions for output embeddings (only supported by certain models)
+    /// - Returns: Embeddings response containing the embedding vectors
+    public func generateEmbeddings(
+        model: String,
+        input: EmbeddingsInput,
+        encodingFormat: EmbeddingsEncodingFormat? = nil,
+        dimensions: Int? = nil
+    ) async throws -> EmbeddingsResponse {
+        let endpoint = url.appendingPathComponent("embeddings")
+
+        var body: [String: Any] = [
+            "model": model,
+            "input": input.toValue()
+        ]
+
+        if let encodingFormat = encodingFormat {
+            body["encoding_format"] = encodingFormat.rawValue
+        }
+        if let dimensions = dimensions {
+            body["dimensions"] = dimensions
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
+        let response = try await executeRequest(
+            .post,
+            url: endpoint,
+            headers: requestHeaders,
+            body: data
+        )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let result = try response.decode(EmbeddingsResponse.self)
+        logger.debug("Embeddings generation successful, model: \(model), count: \(result.data.count)")
+        return result
+    }
+
+    // MARK: - Models
+
     /// List available AI models
     public func listModels() async throws -> ListModelsResponse {
         let endpoint = url.appendingPathComponent("models")
@@ -462,4 +522,53 @@ public struct AIModel: Codable, Sendable {
     public var description: String? { nil }
     public var contextLength: Int? { nil }
     public var maxCompletionTokens: Int? { nil }
+}
+
+// MARK: - Embeddings Models
+
+/// Input type for embeddings - supports single string or array of strings
+public enum EmbeddingsInput: Sendable {
+    case single(String)
+    case multiple([String])
+
+    func toValue() -> Any {
+        switch self {
+        case .single(let text):
+            return text
+        case .multiple(let texts):
+            return texts
+        }
+    }
+}
+
+/// Encoding format for embeddings output
+public enum EmbeddingsEncodingFormat: String, Codable, Sendable {
+    case float
+    case base64
+}
+
+/// Embeddings response
+public struct EmbeddingsResponse: Codable, Sendable {
+    public let object: String
+    public let data: [EmbeddingObject]
+    public let metadata: Metadata?
+
+    public struct Metadata: Codable, Sendable {
+        public let model: String
+        public let usage: EmbeddingsUsage?
+    }
+}
+
+/// Token usage for embeddings (may not have completionTokens)
+public struct EmbeddingsUsage: Codable, Sendable {
+    public let promptTokens: Int?
+    public let completionTokens: Int?
+    public let totalTokens: Int?
+}
+
+/// Individual embedding object
+public struct EmbeddingObject: Codable, Sendable {
+    public let object: String
+    public let embedding: [Double]
+    public let index: Int
 }
