@@ -383,10 +383,178 @@ public struct FileParserPlugin: Codable, Sendable {
 
 // MARK: - Chat Models
 
-/// Chat message
-public struct ChatMessage: Codable, Sendable {
+// MARK: Multimodal Content Types
+
+/// Text content part
+public struct TextContent: Sendable {
+    public let text: String
+
+    public init(text: String) {
+        self.text = text
+    }
+
+    func toDictionary() -> [String: Any] {
+        [
+            "type": "text",
+            "text": text
+        ]
+    }
+}
+
+/// Image detail level for vision models
+public enum ImageDetail: String, Sendable {
+    case auto
+    case low
+    case high
+}
+
+/// Image content part
+public struct ImageContent: Sendable {
+    public let url: String
+    public let detail: ImageDetail?
+
+    /// Create image content from URL or base64 data URI
+    /// - Parameters:
+    ///   - url: Public URL (e.g., "https://example.com/image.jpg") or base64 data URI (e.g., "data:image/jpeg;base64,...")
+    ///   - detail: Optional detail level for vision processing
+    public init(url: String, detail: ImageDetail? = nil) {
+        self.url = url
+        self.detail = detail
+    }
+
+    func toDictionary() -> [String: Any] {
+        var imageUrl: [String: Any] = ["url": url]
+        if let detail = detail {
+            imageUrl["detail"] = detail.rawValue
+        }
+        return [
+            "type": "image_url",
+            "image_url": imageUrl
+        ]
+    }
+}
+
+/// Audio format for input audio
+public enum AudioFormat: String, Sendable {
+    case wav
+    case mp3
+    case aiff
+    case aac
+    case ogg
+    case flac
+    case m4a
+}
+
+/// Audio content part
+public struct AudioContent: Sendable {
+    public let data: String
+    public let format: AudioFormat
+
+    /// Create audio content from base64-encoded audio data
+    /// - Parameters:
+    ///   - data: Base64-encoded audio data (direct URLs not supported for audio)
+    ///   - format: Audio format
+    public init(data: String, format: AudioFormat) {
+        self.data = data
+        self.format = format
+    }
+
+    func toDictionary() -> [String: Any] {
+        [
+            "type": "input_audio",
+            "input_audio": [
+                "data": data,
+                "format": format.rawValue
+            ]
+        ]
+    }
+}
+
+/// File content part for PDFs and other documents
+public struct FileContent: Sendable {
+    public let filename: String
+    public let fileData: String
+
+    /// Create file content
+    /// - Parameters:
+    ///   - filename: Filename with extension (e.g., "document.pdf")
+    ///   - fileData: Public URL (e.g., "https://example.com/doc.pdf") or base64 data URL (e.g., "data:application/pdf;base64,...")
+    public init(filename: String, fileData: String) {
+        self.filename = filename
+        self.fileData = fileData
+    }
+
+    func toDictionary() -> [String: Any] {
+        [
+            "type": "file",
+            "file": [
+                "filename": filename,
+                "file_data": fileData
+            ]
+        ]
+    }
+}
+
+/// Content part for multimodal messages
+public enum ContentPart: Sendable {
+    case text(TextContent)
+    case image(ImageContent)
+    case audio(AudioContent)
+    case file(FileContent)
+
+    /// Convenience initializer for text content
+    public static func text(_ text: String) -> ContentPart {
+        .text(TextContent(text: text))
+    }
+
+    /// Convenience initializer for image content
+    public static func image(url: String, detail: ImageDetail? = nil) -> ContentPart {
+        .image(ImageContent(url: url, detail: detail))
+    }
+
+    /// Convenience initializer for audio content
+    public static func audio(data: String, format: AudioFormat) -> ContentPart {
+        .audio(AudioContent(data: data, format: format))
+    }
+
+    /// Convenience initializer for file content
+    public static func file(filename: String, fileData: String) -> ContentPart {
+        .file(FileContent(filename: filename, fileData: fileData))
+    }
+
+    func toDictionary() -> [String: Any] {
+        switch self {
+        case .text(let content):
+            return content.toDictionary()
+        case .image(let content):
+            return content.toDictionary()
+        case .audio(let content):
+            return content.toDictionary()
+        case .file(let content):
+            return content.toDictionary()
+        }
+    }
+}
+
+/// Message content - can be simple string or array of content parts for multimodal
+public enum MessageContent: Sendable {
+    case text(String)
+    case parts([ContentPart])
+
+    func toValue() -> Any {
+        switch self {
+        case .text(let string):
+            return string
+        case .parts(let parts):
+            return parts.map { $0.toDictionary() }
+        }
+    }
+}
+
+/// Chat message with multimodal support
+public struct ChatMessage: Sendable {
     public let role: Role
-    public let content: String
+    public let content: MessageContent
 
     public enum Role: String, Codable, Sendable {
         case user
@@ -394,15 +562,22 @@ public struct ChatMessage: Codable, Sendable {
         case system
     }
 
+    /// Create a simple text message
     public init(role: Role, content: String) {
         self.role = role
-        self.content = content
+        self.content = .text(content)
     }
 
-    func toDictionary() -> [String: String] {
+    /// Create a multimodal message with content parts
+    public init(role: Role, content: [ContentPart]) {
+        self.role = role
+        self.content = .parts(content)
+    }
+
+    func toDictionary() -> [String: Any] {
         [
             "role": role.rawValue,
-            "content": content
+            "content": content.toValue()
         ]
     }
 }

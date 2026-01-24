@@ -44,11 +44,10 @@ final class InsForgeAITests: XCTestCase {
         let message = ChatMessage(role: .user, content: "Hello, AI!")
 
         XCTAssertEqual(message.role, .user)
-        XCTAssertEqual(message.content, "Hello, AI!")
 
         let dict = message.toDictionary()
-        XCTAssertEqual(dict["role"], "user")
-        XCTAssertEqual(dict["content"], "Hello, AI!")
+        XCTAssertEqual(dict["role"] as? String, "user")
+        XCTAssertEqual(dict["content"] as? String, "Hello, AI!")
     }
 
     func testChatMessageRoles() {
@@ -59,6 +58,88 @@ final class InsForgeAITests: XCTestCase {
         XCTAssertEqual(userMessage.role.rawValue, "user")
         XCTAssertEqual(assistantMessage.role.rawValue, "assistant")
         XCTAssertEqual(systemMessage.role.rawValue, "system")
+    }
+
+    // MARK: - Multimodal Message Tests
+
+    func testMultimodalMessageWithImage() {
+        let message = ChatMessage(role: .user, content: [
+            .text("What is in this image?"),
+            .image(url: "https://example.com/image.jpg", detail: .high)
+        ])
+
+        XCTAssertEqual(message.role, .user)
+
+        let dict = message.toDictionary()
+        XCTAssertEqual(dict["role"] as? String, "user")
+
+        guard let contentArray = dict["content"] as? [[String: Any]] else {
+            XCTFail("Content should be an array")
+            return
+        }
+
+        XCTAssertEqual(contentArray.count, 2)
+
+        // Check text part
+        XCTAssertEqual(contentArray[0]["type"] as? String, "text")
+        XCTAssertEqual(contentArray[0]["text"] as? String, "What is in this image?")
+
+        // Check image part
+        XCTAssertEqual(contentArray[1]["type"] as? String, "image_url")
+        if let imageUrl = contentArray[1]["image_url"] as? [String: Any] {
+            XCTAssertEqual(imageUrl["url"] as? String, "https://example.com/image.jpg")
+            XCTAssertEqual(imageUrl["detail"] as? String, "high")
+        } else {
+            XCTFail("image_url should be a dictionary")
+        }
+    }
+
+    func testMultimodalMessageWithFile() {
+        let message = ChatMessage(role: .user, content: [
+            .text("Summarize this document"),
+            .file(filename: "doc.pdf", fileData: "https://example.com/doc.pdf")
+        ])
+
+        let dict = message.toDictionary()
+        guard let contentArray = dict["content"] as? [[String: Any]] else {
+            XCTFail("Content should be an array")
+            return
+        }
+
+        XCTAssertEqual(contentArray.count, 2)
+
+        // Check file part
+        XCTAssertEqual(contentArray[1]["type"] as? String, "file")
+        if let file = contentArray[1]["file"] as? [String: Any] {
+            XCTAssertEqual(file["filename"] as? String, "doc.pdf")
+            XCTAssertEqual(file["file_data"] as? String, "https://example.com/doc.pdf")
+        } else {
+            XCTFail("file should be a dictionary")
+        }
+    }
+
+    func testMultimodalMessageWithAudio() {
+        let message = ChatMessage(role: .user, content: [
+            .text("Transcribe this audio"),
+            .audio(data: "base64encodedaudiodata", format: .mp3)
+        ])
+
+        let dict = message.toDictionary()
+        guard let contentArray = dict["content"] as? [[String: Any]] else {
+            XCTFail("Content should be an array")
+            return
+        }
+
+        XCTAssertEqual(contentArray.count, 2)
+
+        // Check audio part
+        XCTAssertEqual(contentArray[1]["type"] as? String, "input_audio")
+        if let inputAudio = contentArray[1]["input_audio"] as? [String: Any] {
+            XCTAssertEqual(inputAudio["data"] as? String, "base64encodedaudiodata")
+            XCTAssertEqual(inputAudio["format"] as? String, "mp3")
+        } else {
+            XCTFail("input_audio should be a dictionary")
+        }
     }
 
     // MARK: - API Tests
