@@ -291,6 +291,261 @@ final class InsForgeAITests: XCTestCase {
         print("   Response: \(response.content)")
     }
 
+    // MARK: - Multimodal Chat Completion Tests
+
+    /// Test chat completion with image input (vision)
+    func testChatCompletionWithImage() async throws {
+        print("🔵 Testing chatCompletion with image input...")
+
+        // Get available models - need a vision-capable model
+        let modelsResponse = try await insForgeClient.ai.listModels()
+
+        // Look for a vision-capable model (e.g., gpt-4-vision, claude-3, gemini)
+        guard let configuredProvider = modelsResponse.text.first(where: { $0.configured }),
+              let visionModel = configuredProvider.models.first(where: { model in
+                  model.id.contains("vision") ||
+                  model.id.contains("claude-3") ||
+                  model.id.contains("gemini") ||
+                  model.id.contains("gpt-4o")
+              }) ?? configuredProvider.models.first else {
+            throw XCTSkip("No configured vision-capable AI models available")
+        }
+
+        print("   Using model: \(visionModel.name) (\(visionModel.id))")
+
+        // Create multimodal message with a public image URL
+        // Using a reliable test image (JPEG format, publicly accessible)
+        let messages = [
+            ChatMessage(role: .user, content: [
+                .text("What do you see in this image? Describe it briefly."),
+                .image(url: "https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png", detail: .low)
+            ])
+        ]
+
+        // Call chat completion
+        let response = try await insForgeClient.ai.chatCompletion(
+            model: visionModel.id,
+            messages: messages,
+            maxTokens: 200
+        )
+
+        // Verify response
+        XCTAssertTrue(response.success)
+        XCTAssertFalse(response.content.isEmpty)
+
+        print("✅ Chat completion with image successful")
+        print("   Response: \(response.content)")
+        if let metadata = response.metadata {
+            print("   Model used: \(metadata.model)")
+        }
+    }
+
+    /// Test chat completion with PDF file input
+    func testChatCompletionWithPDF() async throws {
+        print("🔵 Testing chatCompletion with PDF input...")
+
+        let modelsResponse = try await insForgeClient.ai.listModels()
+
+        guard let configuredProvider = modelsResponse.text.first(where: { $0.configured }),
+              let firstModel = configuredProvider.models.first else {
+            throw XCTSkip("No configured text AI models available")
+        }
+
+        print("   Using model: \(firstModel.name) (\(firstModel.id))")
+
+        // Create multimodal message with a PDF URL
+        // Using a reliable, publicly accessible PDF from GitHub
+        let pdfUrl = "https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf"
+        let messages = [
+            ChatMessage(role: .user, content: [
+                .text("What is this document about? Summarize it in one sentence."),
+                .file(filename: "tracemonkey.pdf", fileData: pdfUrl)
+            ])
+        ]
+
+        // Call chat completion with file parser enabled
+        let response = try await insForgeClient.ai.chatCompletion(
+            model: firstModel.id,
+            messages: messages,
+            maxTokens: 200,
+            fileParser: FileParserPlugin(enabled: true, pdf: FileParserPlugin.PDFConfig(engine: .pdfText))
+        )
+
+        // Verify response
+        XCTAssertTrue(response.success)
+        XCTAssertFalse(response.content.isEmpty)
+
+        print("✅ Chat completion with PDF successful")
+        print("   Response: \(response.content)")
+    }
+
+    /// Test chat completion with multiple content types (text + image)
+    func testChatCompletionWithMixedContent() async throws {
+        print("🔵 Testing chatCompletion with mixed content...")
+
+        let modelsResponse = try await insForgeClient.ai.listModels()
+
+        guard let configuredProvider = modelsResponse.text.first(where: { $0.configured }),
+              let visionModel = configuredProvider.models.first(where: { model in
+                  model.id.contains("vision") ||
+                  model.id.contains("claude-3") ||
+                  model.id.contains("gemini") ||
+                  model.id.contains("gpt-4o")
+              }) ?? configuredProvider.models.first else {
+            throw XCTSkip("No configured vision-capable AI models available")
+        }
+
+        print("   Using model: \(visionModel.name) (\(visionModel.id))")
+
+        // Conversation with multiple turns including images
+        // Using a reliable test image (PNG format, publicly accessible)
+        let messages = [
+            ChatMessage(role: .system, content: "You are a helpful assistant that can analyze images."),
+            ChatMessage(role: .user, content: [
+                .text("What company logo is this?"),
+                .image(url: "https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png")
+            ])
+        ]
+
+        let response = try await insForgeClient.ai.chatCompletion(
+            model: visionModel.id,
+            messages: messages,
+            maxTokens: 150
+        )
+
+        XCTAssertTrue(response.success)
+        XCTAssertFalse(response.content.isEmpty)
+
+        // Response should likely mention Google
+        let mentionsGoogle = response.content.lowercased().contains("google")
+        print("✅ Chat completion with mixed content successful")
+        print("   Response mentions Google: \(mentionsGoogle)")
+        print("   Response: \(response.content)")
+    }
+
+    /// Test chat completion with base64-encoded image
+    func testChatCompletionWithBase64Image() async throws {
+        print("🔵 Testing chatCompletion with base64 image...")
+
+        let modelsResponse = try await insForgeClient.ai.listModels()
+
+        guard let configuredProvider = modelsResponse.text.first(where: { $0.configured }),
+              let visionModel = configuredProvider.models.first(where: { model in
+                  model.id.contains("vision") ||
+                  model.id.contains("claude-3") ||
+                  model.id.contains("gemini") ||
+                  model.id.contains("gpt-4o")
+              }) ?? configuredProvider.models.first else {
+            throw XCTSkip("No configured vision-capable AI models available")
+        }
+
+        print("   Using model: \(visionModel.name) (\(visionModel.id))")
+
+        // Small 1x1 red pixel PNG as base64 (minimal test image)
+        let base64Image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
+
+        let messages = [
+            ChatMessage(role: .user, content: [
+                .text("What color is this tiny image? Just say the color."),
+                .image(url: base64Image, detail: .low)
+            ])
+        ]
+
+        let response = try await insForgeClient.ai.chatCompletion(
+            model: visionModel.id,
+            messages: messages,
+            maxTokens: 50
+        )
+
+        XCTAssertTrue(response.success)
+        XCTAssertFalse(response.content.isEmpty)
+
+        print("✅ Chat completion with base64 image successful")
+        print("   Response: \(response.content)")
+    }
+
+    /// Test chat completion with web search enabled
+    func testChatCompletionWithWebSearch() async throws {
+        print("🔵 Testing chatCompletion with web search...")
+
+        let modelsResponse = try await insForgeClient.ai.listModels()
+
+        guard let configuredProvider = modelsResponse.text.first(where: { $0.configured }),
+              let firstModel = configuredProvider.models.first else {
+            throw XCTSkip("No configured text AI models available")
+        }
+
+        print("   Using model: \(firstModel.name) (\(firstModel.id))")
+
+        let messages = [
+            ChatMessage(role: .user, content: "What are the latest Swift programming language features in 2024?")
+        ]
+
+        let response = try await insForgeClient.ai.chatCompletion(
+            model: firstModel.id,
+            messages: messages,
+            maxTokens: 300,
+            webSearch: WebSearchPlugin(enabled: true, maxResults: 3)
+        )
+
+        XCTAssertTrue(response.success)
+        XCTAssertFalse(response.content.isEmpty)
+
+        print("✅ Chat completion with web search successful")
+        print("   Response: \(response.content)")
+
+        // Check if annotations are present (citations from web search)
+        if let annotations = response.annotations, !annotations.isEmpty {
+            print("   Citations found: \(annotations.count)")
+            for annotation in annotations.prefix(3) {
+                if let urlCitation = annotation.urlCitation {
+                    print("   - \(urlCitation.title ?? "No title"): \(urlCitation.url)")
+                }
+            }
+        }
+    }
+
+    /// Test chat completion with thinking mode (for supported models)
+    func testChatCompletionWithThinking() async throws {
+        print("🔵 Testing chatCompletion with thinking mode...")
+
+        let modelsResponse = try await insForgeClient.ai.listModels()
+
+        // Look for Anthropic Claude model that supports thinking (needs :thinking suffix support)
+        guard let configuredProvider = modelsResponse.text.first(where: { $0.configured }),
+              let claudeModel = configuredProvider.models.first(where: { model in
+                  // Look for models that explicitly support thinking mode
+                  model.id.contains("claude") && model.id.contains("thinking")
+              }) else {
+            // If no thinking model is explicitly available, skip the test
+            throw XCTSkip("No Claude model with thinking support is enabled on the server. Thinking mode requires specific model configuration.")
+        }
+
+        print("   Using model: \(claudeModel.name) (\(claudeModel.id))")
+
+        let messages = [
+            ChatMessage(role: .user, content: "What is 15 * 17? Show your reasoning step by step.")
+        ]
+
+        let response = try await insForgeClient.ai.chatCompletion(
+            model: claudeModel.id,
+            messages: messages,
+            maxTokens: 500,
+            thinking: true
+        )
+
+        XCTAssertTrue(response.success)
+        XCTAssertFalse(response.content.isEmpty)
+
+        // Response should contain 255 (15 * 17)
+        let containsAnswer = response.content.contains("255")
+        print("✅ Chat completion with thinking mode successful")
+        print("   Contains correct answer (255): \(containsAnswer)")
+        print("   Response: \(response.content)")
+    }
+
+    // MARK: - Image Generation Tests
+
     /// Test image generation
     func testGenerateImage() async throws {
         print("🔵 Testing generateImage...")

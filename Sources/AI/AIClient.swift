@@ -272,11 +272,11 @@ public actor AIClient {
         let models = try response.decode([AIModel].self)
 
         // Organize models by modality
-        let textModels = models.filter { $0.outputModality.contains("text") }
-        let imageModels = models.filter { $0.outputModality.contains("image") }
+        let textModels = models.filter { $0.outputModality?.contains("text") ?? false }
+        let imageModels = models.filter { $0.outputModality?.contains("image") ?? false }
 
         // Group by provider
-        let textProviders = Dictionary(grouping: textModels) { $0.provider }
+        let textProviders = Dictionary(grouping: textModels) { $0.provider ?? "unknown" }
             .map { provider, models in
                 ListModelsResponse.ModelProvider(
                     provider: provider,
@@ -285,7 +285,7 @@ public actor AIClient {
                 )
             }
 
-        let imageProviders = Dictionary(grouping: imageModels) { $0.provider }
+        let imageProviders = Dictionary(grouping: imageModels) { $0.provider ?? "unknown" }
             .map { provider, models in
                 ListModelsResponse.ModelProvider(
                     provider: provider,
@@ -686,11 +686,11 @@ public struct ListModelsResponse: Codable, Sendable {
 /// AI model information
 public struct AIModel: Codable, Sendable {
     public let id: String
-    public let modelId: String
-    public let provider: String
-    public let inputModality: [String]
-    public let outputModality: [String]
-    public let priceLevel: Int
+    public let modelId: String?
+    public let provider: String?
+    public let inputModality: [String]?
+    public let outputModality: [String]?
+    public let priceLevel: Int?
 
     // Computed properties for compatibility
     public var name: String { id }
