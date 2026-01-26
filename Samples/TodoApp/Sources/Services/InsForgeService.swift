@@ -138,32 +138,58 @@ class InsForgeService: ObservableObject {
 
     // MARK: - OAuth Authentication
 
+    /// URL scheme for OAuth callback (must match Info.plist CFBundleURLSchemes)
+    static let oauthCallbackScheme = "todoapp"
+    static let oauthRedirectURL = "\(oauthCallbackScheme)://auth/callback"
+
     /// Sign in using OAuth via default web view
-    func signInWithOAuth() async {
-        await client.auth.signInWithDefaultView(redirectTo: "todoapp://auth/callback")
+    /// Uses ASWebAuthenticationSession (in-app browser) when available, falls back to external browser
+    func signInWithOAuth() async throws {
+        if let response = try await client.auth.signInWithDefaultView(redirectTo: Self.oauthRedirectURL) {
+            // ASWebAuthenticationSession completed successfully
+            self.currentUser = response.user
+            self.isAuthenticated = true
+            logger.info("OAuth sign in successful via ASWebAuthenticationSession")
+        }
+        // If nil, external browser was opened - app will receive callback via URL scheme
     }
 
     /// Sign in with Google OAuth
+    /// Uses ASWebAuthenticationSession (in-app browser) when available, falls back to external browser
     func signInWithGoogle() async throws {
-        try await client.auth.signInWithOAuthView(
+        if let response = try await client.auth.signInWithOAuthView(
             provider: .google,
-            redirectTo: "todoapp://auth/callback"
-        )
+            redirectTo: Self.oauthRedirectURL
+        ) {
+            // ASWebAuthenticationSession completed successfully
+            self.currentUser = response.user
+            self.isAuthenticated = true
+            logger.info("Google OAuth sign in successful via ASWebAuthenticationSession")
+        }
+        // If nil, external browser was opened - app will receive callback via URL scheme
     }
 
     /// Sign in with GitHub OAuth
+    /// Uses ASWebAuthenticationSession (in-app browser) when available, falls back to external browser
     func signInWithGitHub() async throws {
-        try await client.auth.signInWithOAuthView(
+        if let response = try await client.auth.signInWithOAuthView(
             provider: .github,
-            redirectTo: "todoapp://auth/callback"
-        )
+            redirectTo: Self.oauthRedirectURL
+        ) {
+            // ASWebAuthenticationSession completed successfully
+            self.currentUser = response.user
+            self.isAuthenticated = true
+            logger.info("GitHub OAuth sign in successful via ASWebAuthenticationSession")
+        }
+        // If nil, external browser was opened - app will receive callback via URL scheme
     }
 
-    /// Handle OAuth callback and authenticate user
+    /// Handle OAuth callback from external browser (fallback when ASWebAuthenticationSession is not available)
+    /// This is called when the app receives a URL via the registered URL scheme
     func handleOAuthCallback(_ url: URL) async throws {
-        print("[InsForgeService] handleOAuthCallback called with URL: \(url)")
+        logger.debug("handleOAuthCallback called with URL: \(url)")
         let response = try await client.auth.handleAuthCallback(url)
-        print("[InsForgeService] OAuth callback handled, user ID: \(response.user.id)")
+        logger.debug("OAuth callback handled, user ID: \(response.user.id)")
 
         self.currentUser = response.user
         self.isAuthenticated = true

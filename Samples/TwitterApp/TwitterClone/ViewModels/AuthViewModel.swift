@@ -148,12 +148,29 @@ class AuthViewModel: ObservableObject {
     static let oauthCallbackScheme = "twitterclone"
     static let oauthRedirectURL = "\(oauthCallbackScheme)://auth/callback"
 
-    /// Sign in with OAuth provider (opens browser)
+    /// Sign in with OAuth provider
+    /// Uses ASWebAuthenticationSession (in-app browser) when available, falls back to external browser
     func signInWithOAuth() async {
-        await client.auth.signInWithDefaultView(redirectTo: Self.oauthRedirectURL)
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            if let response = try await client.auth.signInWithDefaultView(redirectTo: Self.oauthRedirectURL) {
+                // ASWebAuthenticationSession completed successfully
+                self.currentUser = response.user
+                self.isAuthenticated = true
+                // Check if profile exists, if not create one
+                await loadOrCreateProfile(user: response.user)
+            }
+            // If nil, external browser was opened - app will receive callback via URL scheme
+        } catch {
+            errorMessage = "OAuth sign in failed: \(error.localizedDescription)"
+        }
     }
 
-    /// Handle OAuth callback and create profile if needed
+    /// Handle OAuth callback from external browser (fallback when ASWebAuthenticationSession is not available)
+    /// This is called when the app receives a URL via the registered URL scheme
     func handleOAuthCallback(url: URL) async {
         isLoading = true
         errorMessage = nil

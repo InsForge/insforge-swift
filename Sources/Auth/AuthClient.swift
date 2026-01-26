@@ -2,6 +2,9 @@ import Foundation
 import InsForgeCore
 import Logging
 import CryptoKit
+#if canImport(AuthenticationServices)
+import AuthenticationServices
+#endif
 #if os(macOS)
 import AppKit
 #elseif os(iOS) || os(tvOS)
@@ -61,6 +64,25 @@ private extension Data {
             .replacingOccurrences(of: "=", with: "")
     }
 }
+
+// MARK: - ASWebAuthenticationSession Presentation Context
+
+#if canImport(AuthenticationServices) && !os(tvOS)
+/// Presentation context provider for ASWebAuthenticationSession
+@MainActor
+final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        #if os(macOS)
+        return NSApplication.shared.keyWindow ?? NSWindow()
+        #else
+        // iOS: Get the key window from the first connected scene
+        let scenes = UIApplication.shared.connectedScenes
+        let windowScene = scenes.first as? UIWindowScene
+        return windowScene?.windows.first { $0.isKeyWindow } ?? UIWindow()
+        #endif
+    }
+}
+#endif
 
 /// Authentication client for InsForge
 public actor AuthClient {
@@ -332,12 +354,15 @@ public actor AuthClient {
     // MARK: - OAuth / Default Page Sign In
 
     /// Sign in with a specific OAuth provider using PKCE flow
-    /// Opens the browser to authenticate with the specified provider (Google, GitHub, etc.)
+    /// Uses ASWebAuthenticationSession to present an in-app browser sheet when available (iOS 12+, macOS 10.15+),
+    /// falls back to opening external browser on unsupported platforms.
     /// - Parameters:
-    ///   - provider: The OAuth provider to use
-    ///   - redirectTo: Callback URL where auth result will be sent
-    /// - Note: After user completes OAuth, call `handleAuthCallback` with the callback URL to exchange the code for tokens
-    public func signInWithOAuthView(provider: OAuthProvider, redirectTo: String) async throws {
+    ///   - provider: The OAuth provider to use (Google, GitHub, etc.)
+    ///   - redirectTo: Callback URL scheme (e.g., "myapp://auth" or "https://myapp.com/callback")
+    /// - Returns: AuthResponse with user and tokens after successful authentication (when using ASWebAuthenticationSession)
+    /// - Note: When falling back to external browser, returns nil. Call `handleAuthCallback` when the app receives the callback URL.
+    @discardableResult
+    public func signInWithOAuthView(provider: OAuthProvider, redirectTo: String) async throws -> AuthResponse? {
         // Generate PKCE code verifier and challenge
         let pkce = PKCEHelper.generate()
         pendingPKCE = pkce
@@ -390,21 +415,33 @@ public actor AuthClient {
             throw InsForgeError.invalidURL
         }
 
-        logger.debug("Opening OAuth page for \(provider.rawValue): \(authURL)")
+        logger.debug("Starting OAuth session for \(provider.rawValue): \(authURL)")
 
-        // Open browser
-        #if os(macOS)
-        await NSWorkspace.shared.open(authURL)
-        #elseif os(iOS) || os(tvOS)
-        await UIApplication.shared.open(authURL)
+        // Extract callback URL scheme for ASWebAuthenticationSession
+        let callbackURLScheme = extractURLScheme(from: redirectTo)
+
+        // Try ASWebAuthenticationSession first (iOS 12+, macOS 10.15+)
+        #if canImport(AuthenticationServices) && !os(tvOS)
+        if #available(iOS 12.0, macOS 10.15, *) {
+            let callbackURL = try await performWebAuthSession(url: authURL, callbackURLScheme: callbackURLScheme)
+            return try await handleAuthCallback(callbackURL)
+        }
         #endif
+
+        // Fallback: Open external browser
+        logger.debug("ASWebAuthenticationSession not available, falling back to external browser")
+        await openURLInBrowser(authURL)
+        return nil
     }
 
     /// Sign in using InsForge's default web authentication page with PKCE flow
-    /// Opens the browser to authenticate with OAuth (Google, GitHub, etc.) or email+password
-    /// - Parameter redirectTo: Callback URL where auth result will be sent
-    /// - Note: After user completes authentication, call `handleAuthCallback` with the callback URL to exchange the code for tokens
-    public func signInWithDefaultView(redirectTo: String) async {
+    /// Uses ASWebAuthenticationSession to present an in-app browser sheet when available (iOS 12+, macOS 10.15+),
+    /// falls back to opening external browser on unsupported platforms.
+    /// - Parameter redirectTo: Callback URL scheme (e.g., "myapp://auth" or "https://myapp.com/callback")
+    /// - Returns: AuthResponse with user and tokens after successful authentication (when using ASWebAuthenticationSession)
+    /// - Note: When falling back to external browser, returns nil. Call `handleAuthCallback` when the app receives the callback URL.
+    @discardableResult
+    public func signInWithDefaultView(redirectTo: String) async throws -> AuthResponse? {
         // Generate PKCE code verifier and challenge
         let pkce = PKCEHelper.generate()
         pendingPKCE = pkce
@@ -423,16 +460,26 @@ public actor AuthClient {
 
         guard let authURL = components.url else {
             logger.error("Failed to construct sign-in URL")
-            return
+            throw InsForgeError.invalidURL
         }
 
-        logger.debug("Opening sign-in page: \(authURL)")
+        logger.debug("Starting sign-in session: \(authURL)")
 
-        #if os(macOS)
-        await NSWorkspace.shared.open(authURL)
-        #elseif os(iOS) || os(tvOS)
-        await UIApplication.shared.open(authURL)
+        // Extract callback URL scheme for ASWebAuthenticationSession
+        let callbackURLScheme = extractURLScheme(from: redirectTo)
+
+        // Try ASWebAuthenticationSession first (iOS 12+, macOS 10.15+)
+        #if canImport(AuthenticationServices) && !os(tvOS)
+        if #available(iOS 12.0, macOS 10.15, *) {
+            let callbackURL = try await performWebAuthSession(url: authURL, callbackURLScheme: callbackURLScheme)
+            return try await handleAuthCallback(callbackURL)
+        }
         #endif
+
+        // Fallback: Open external browser
+        logger.debug("ASWebAuthenticationSession not available, falling back to external browser")
+        await openURLInBrowser(authURL)
+        return nil
     }
 
     /// Process authentication callback and exchange code for tokens (PKCE flow)
@@ -880,6 +927,69 @@ public actor AuthClient {
     }
 
     // MARK: - Private Helpers
+
+    /// Extract URL scheme from a callback URL string
+    private func extractURLScheme(from urlString: String) -> String? {
+        guard let url = URL(string: urlString),
+              let scheme = url.scheme else {
+            return nil
+        }
+        return scheme
+    }
+
+    /// Open URL in external browser (fallback when ASWebAuthenticationSession is not available)
+    private func openURLInBrowser(_ url: URL) async {
+        #if os(macOS)
+        NSWorkspace.shared.open(url)
+        #elseif os(iOS) || os(tvOS)
+        await UIApplication.shared.open(url)
+        #endif
+    }
+
+    #if canImport(AuthenticationServices) && !os(tvOS)
+    /// Perform web authentication session using ASWebAuthenticationSession
+    @available(iOS 12.0, macOS 10.15, *)
+    private func performWebAuthSession(url: URL, callbackURLScheme: String?) async throws -> URL {
+        // Create presentation context provider and keep strong reference
+        let contextProvider = await MainActor.run { WebAuthPresentationContext() }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let session = ASWebAuthenticationSession(
+                url: url,
+                callbackURLScheme: callbackURLScheme
+            ) { callbackURL, error in
+                // Reference contextProvider to keep it alive until callback completes
+                _ = contextProvider
+
+                if let error = error {
+                    if let authError = error as? ASWebAuthenticationSessionError,
+                       authError.code == .canceledLogin {
+                        continuation.resume(throwing: InsForgeError.unknown("Authentication was cancelled by the user"))
+                    } else {
+                        continuation.resume(throwing: InsForgeError.unknown("Authentication failed: \(error.localizedDescription)"))
+                    }
+                    return
+                }
+
+                guard let callbackURL = callbackURL else {
+                    continuation.resume(throwing: InsForgeError.invalidResponse)
+                    return
+                }
+
+                continuation.resume(returning: callbackURL)
+            }
+
+            // Set presentation context on main thread
+            Task { @MainActor in
+                if #available(iOS 13.0, *) {
+                    session.presentationContextProvider = contextProvider
+                    session.prefersEphemeralWebBrowserSession = false
+                }
+                session.start()
+            }
+        }
+    }
+    #endif
 
     private func getAuthHeaders() async throws -> [String: String] {
         // First try in-memory token

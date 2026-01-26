@@ -206,7 +206,7 @@ struct AuthView: View {
     private func handleOAuthSignIn() {
         Task {
             print("[AuthView] Opening OAuth sign-in page...")
-            await service.signInWithOAuth()
+            try await service.signInWithOAuth()
         }
     }
 
