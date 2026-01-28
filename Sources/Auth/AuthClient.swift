@@ -517,15 +517,14 @@ public actor AuthClient {
             throw InsForgeError.invalidResponse
         }
 
-        let name = params["name"]
         let refreshToken = params["refresh_token"]
 
         // Create user object from callback data
         let user = User(
             id: userId,
             email: email,
-            name: name,
             emailVerified: true,
+            profile: nil,
             metadata: nil,
             identities: nil,
             providerType: nil,
@@ -564,7 +563,7 @@ public actor AuthClient {
     /// Exchange authorization code for tokens (PKCE flow)
     /// - Parameter code: The authorization code received from OAuth callback
     /// - Returns: AuthResponse with user and tokens
-    public func exchangeCodeForTokens(code: String) async throws -> AuthResponse {
+    private func exchangeCodeForTokens(code: String) async throws -> AuthResponse {
         // Try in-memory PKCE first, then fall back to stored PKCE (for app restart during OAuth)
         var codeVerifier: String?
 
@@ -817,6 +816,52 @@ public actor AuthClient {
         logger.debug("Response: \(statusCode)")
 
         logger.debug("Password reset email sent to: \(email)")
+    }
+
+    /// Exchange reset password code for reset token (code-based flow only)
+    ///
+    /// This is step 1 of the two-step password reset flow when using code verification:
+    /// 1. Call `sendPasswordReset(email:)` to receive a 6-digit code via email
+    /// 2. Call this method to verify the code and get a reset token
+    /// 3. Call `resetPassword(otp:newPassword:)` with the reset token
+    ///
+    /// - Parameters:
+    ///   - email: User's email address
+    ///   - code: 6-digit numeric code received via email
+    /// - Returns: ResetPasswordTokenResponse containing the reset token and expiration
+    /// - Note: This endpoint is only used when resetPasswordMethod is 'code'. For 'link' method, skip this step.
+    public func exchangeResetPasswordToken(email: String, code: String) async throws -> ResetPasswordTokenResponse {
+        let endpoint = url.appendingPathComponent("email/exchange-reset-password-token")
+
+        let body = [
+            "email": email,
+            "code": code
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request (don't log code)
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("Request body: email=\(email)")
+
+        let response = try await httpClient.execute(
+            .post,
+            url: endpoint,
+            headers: requestHeaders,
+            body: data
+        )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let tokenResponse = try response.decode(ResetPasswordTokenResponse.self)
+        logger.debug("Reset password code verified, token expires at: \(tokenResponse.expiresAt?.description ?? "unknown")")
+        return tokenResponse
     }
 
     /// Reset password with OTP token

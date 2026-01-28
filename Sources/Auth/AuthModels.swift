@@ -7,12 +7,30 @@ public struct Identity: Codable, Sendable {
     public let provider: String
 }
 
+/// User profile data embedded in User response
+public struct UserProfile: Codable, Sendable {
+    /// User's display name
+    public let name: String?
+    /// URL to user's avatar image
+    public let avatarUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case avatarUrl = "avatar_url"
+    }
+
+    public init(name: String? = nil, avatarUrl: String? = nil) {
+        self.name = name
+        self.avatarUrl = avatarUrl
+    }
+}
+
 /// User model
 public struct User: Codable, Sendable, Identifiable {
     public let id: String
     public let email: String
-    public let name: String?
     public let emailVerified: Bool?
+    public let profile: UserProfile?
     public let metadata: [String: AnyCodable]?
     public let identities: [Identity]?
     public let providerType: String?
@@ -21,7 +39,31 @@ public struct User: Codable, Sendable, Identifiable {
     public let updatedAt: Date?
 
     enum CodingKeys: String, CodingKey {
-        case id, email, name, emailVerified, metadata, identities, providerType, role, createdAt, updatedAt
+        case id, email, emailVerified, profile, metadata, identities, providerType, role, createdAt, updatedAt
+    }
+
+    public init(
+        id: String,
+        email: String,
+        emailVerified: Bool? = nil,
+        profile: UserProfile? = nil,
+        metadata: [String: AnyCodable]? = nil,
+        identities: [Identity]? = nil,
+        providerType: String? = nil,
+        role: String? = nil,
+        createdAt: Date? = nil,
+        updatedAt: Date? = nil
+    ) {
+        self.id = id
+        self.email = email
+        self.emailVerified = emailVerified
+        self.profile = profile
+        self.metadata = metadata
+        self.identities = identities
+        self.providerType = providerType
+        self.role = role
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 
     // Computed property for backwards compatibility
@@ -32,6 +74,16 @@ public struct User: Codable, Sendable, Identifiable {
     // Convenience property for email verification status
     public var isEmailVerified: Bool {
         emailVerified ?? false
+    }
+
+    // Convenience property for user's display name from profile
+    public var name: String? {
+        profile?.name
+    }
+
+    // Convenience property for user's avatar URL from profile
+    public var avatarUrl: String? {
+        profile?.avatarUrl
     }
 }
 
@@ -144,6 +196,20 @@ public struct SignUpResponse: Codable, Sendable {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.requireEmailVerification = requireEmailVerification
+    }
+}
+
+// MARK: - Reset Password Token Response
+
+/// Response from exchange-reset-password-token endpoint
+public struct ResetPasswordTokenResponse: Codable, Sendable {
+    /// Reset token to be used in reset-password endpoint
+    public let token: String
+    /// Token expiration timestamp
+    public let expiresAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case token, expiresAt
     }
 }
 

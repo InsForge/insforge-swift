@@ -202,7 +202,8 @@ class AuthViewModel: ObservableObject {
             } else {
                 // Create profile for new OAuth user
                 let username = generateUsername(from: user.email)
-                let displayName = user.name ?? username
+                // Use username as display name since User no longer has name field
+                let displayName = username
 
                 let profileInsert = ProfileInsert(
                     userId: user.id,
