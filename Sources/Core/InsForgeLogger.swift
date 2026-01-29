@@ -1,6 +1,9 @@
 import Foundation
 import Logging
+
+#if canImport(os)
 import os
+#endif
 
 // MARK: - Log Destination
 
@@ -10,7 +13,7 @@ public enum LogDestination: Sendable {
     case console
     /// Output to Apple's unified logging system (os.Logger)
     /// Recommended for iOS/macOS apps - logs are viewable in Console.app
-    /// Requires iOS 14+ / macOS 11+
+    /// Requires iOS 14+ / macOS 11+ and Apple platforms only
     case osLog
     /// Disable all logging
     case none
@@ -44,6 +47,7 @@ public enum InsForgeLoggerFactory {
                 return handler
             }
         case .osLog:
+            #if canImport(os)
             LoggingSystem.bootstrap { label in
                 if #available(iOS 14.0, macOS 11.0, tvOS 14.0, watchOS 7.0, *) {
                     var handler = OSLogHandler(subsystem: subsystem, category: label)
@@ -56,6 +60,14 @@ public enum InsForgeLoggerFactory {
                     return handler
                 }
             }
+            #else
+            // Fallback to console on non-Apple platforms
+            LoggingSystem.bootstrap { label in
+                var handler = StreamLogHandler.standardOutput(label: label)
+                handler.logLevel = level
+                return handler
+            }
+            #endif
         case .none:
             LoggingSystem.bootstrap { _ in
                 SwiftLogNoOpLogHandler()
@@ -92,6 +104,7 @@ public enum InsForgeLoggerFactory {
                 return handler
             }
         case .osLog:
+            #if canImport(os)
             logger = Logging.Logger(label: subsystem) { label in
                 if #available(iOS 14.0, macOS 11.0, tvOS 14.0, watchOS 7.0, *) {
                     var handler = OSLogHandler(subsystem: subsystem, category: label)
@@ -104,6 +117,14 @@ public enum InsForgeLoggerFactory {
                     return handler
                 }
             }
+            #else
+            // Fallback to console on non-Apple platforms
+            logger = Logging.Logger(label: subsystem) { label in
+                var handler = StreamLogHandler.standardOutput(label: label)
+                handler.logLevel = level
+                return handler
+            }
+            #endif
         case .none:
             logger = Logging.Logger(label: subsystem) { _ in
                 SwiftLogNoOpLogHandler()
@@ -122,6 +143,7 @@ public enum InsForgeLoggerFactory {
 
 // MARK: - OSLogHandler
 
+#if canImport(os)
 /// A SwiftLog handler that outputs to Apple's unified logging system (os.Logger).
 ///
 /// This handler maps SwiftLog levels to os.Logger types:
@@ -177,6 +199,7 @@ public struct OSLogHandler: Logging.LogHandler {
         }
     }
 }
+#endif
 
 // MARK: - NoOp Handler
 
