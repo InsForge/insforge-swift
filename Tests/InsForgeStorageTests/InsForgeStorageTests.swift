@@ -1,4 +1,5 @@
 import XCTest
+import TestHelper
 @testable import InsForge
 @testable import InsForgeStorage
 @testable import InsForgeCore
@@ -22,12 +23,6 @@ import XCTest
 final class InsForgeStorageTests: XCTestCase {
     // MARK: - Configuration
 
-    /// Your InsForge instance URL
-    private let insForgeURL = "https://pg6afqz9.us-east.insforge.app"
-
-    /// Your InsForge API key
-    private let apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3OC0xMjM0LTU2NzgtOTBhYi1jZGVmMTIzNDU2NzgiLCJlbWFpbCI6ImFub25AaW5zZm9yZ2UuY29tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5MDc5MzJ9.K0semVtcacV55qeEhVUI3WKWzT7p87JU7wNzdXysRWo"
-
     /// Test bucket name (will be created and deleted during tests)
     private let testBucketName = "test-bucket-swift-sdk"
 
@@ -36,11 +31,8 @@ final class InsForgeStorageTests: XCTestCase {
     private var insForgeClient: InsForgeClient!
 
     override func setUp() async throws {
-        insForgeClient = InsForgeClient(
-            baseURL: URL(string: insForgeURL)!,
-            anonKey: apiKey
-        )
-        print("📍 InsForge URL: \(insForgeURL)")
+        insForgeClient = TestHelper.createClient()
+        print("📍 InsForge URL: \(TestHelper.insForgeURL)")
     }
 
     override func tearDown() async throws {
@@ -258,7 +250,10 @@ final class InsForgeStorageTests: XCTestCase {
         )
 
         // Load test image from file (relative to Tests directory)
-        let imagePath = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("cpu.png").path
+        let imagePath = URL(fileURLWithPath: #file)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("cpu.png").path
         let imageURL = URL(fileURLWithPath: imagePath)
         let testContent = try Data(contentsOf: imageURL)
         let filePath = "test-files/hello-\(UUID().uuidString).png"

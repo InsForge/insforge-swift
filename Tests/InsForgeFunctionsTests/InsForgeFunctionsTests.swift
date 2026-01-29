@@ -1,4 +1,5 @@
 import XCTest
+import TestHelper
 @testable import InsForge
 @testable import InsForgeFunctions
 @testable import InsForgeCore
@@ -20,27 +21,13 @@ import XCTest
 ///
 /// If the hello function is not deployed, those tests will be skipped automatically.
 final class InsForgeFunctionsTests: XCTestCase {
-    // MARK: - Configuration
-
-    /// Your InsForge instance URL
-    /// Replace with your actual InsForge instance
-    private let insForgeURL = "https://pg6afqz9.us-east.insforge.app"
-
-    /// Your InsForge API key
-    /// Replace with your actual API key from InsForge dashboard
-    private let apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3OC0xMjM0LTU2NzgtOTBhYi1jZGVmMTIzNDU2NzgiLCJlbWFpbCI6ImFub25AaW5zZm9yZ2UuY29tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5MDc5MzJ9.K0semVtcacV55qeEhVUI3WKWzT7p87JU7wNzdXysRWo"
-
     // MARK: - Helper
 
     private var insForgeClient: InsForgeClient!
 
     override func setUp() async throws {
-        // Create InsForge client (follows SDK best practice)
-        insForgeClient = InsForgeClient(
-            baseURL: URL(string: insForgeURL)!,
-            anonKey: apiKey
-        )
-        print("📍 InsForge URL: \(insForgeURL)")
+        insForgeClient = TestHelper.createClient()
+        print("📍 InsForge URL: \(TestHelper.insForgeURL)")
     }
 
     override func tearDown() async throws {
@@ -65,7 +52,7 @@ final class InsForgeFunctionsTests: XCTestCase {
 
         do {
             // Invoke hello function via SDK
-            print("🔵 Calling hello function at: \(insForgeURL)/functions/hello")
+            print("🔵 Calling hello function at: \(TestHelper.insForgeURL)/functions/hello")
             let response: HelloResponse = try await insForgeClient.functions.invoke("hello")
 
             // Verify response

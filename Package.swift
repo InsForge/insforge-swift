@@ -123,40 +123,47 @@ let package = Package(
             path: "Sources/InsForge"
         ),
 
+        // Test helper target (shared test utilities)
+        .target(
+            name: "TestHelper",
+            dependencies: ["InsForge"],
+            path: "Tests/TestHelper"
+        ),
+
         // Test targets
         .testTarget(
             name: "InsForgeTests",
-            dependencies: ["InsForge"],
+            dependencies: ["InsForge", "TestHelper"],
             path: "Tests/InsForgeTests"
         ),
         .testTarget(
             name: "InsForgeAuthTests",
-            dependencies: ["InsForgeAuth"],
+            dependencies: ["InsForge", "InsForgeAuth", "TestHelper"],
             path: "Tests/InsForgeAuthTests"
         ),
         .testTarget(
             name: "InsForgeDatabaseTests",
-            dependencies: ["InsForgeDatabase"],
+            dependencies: ["InsForge", "InsForgeDatabase", "TestHelper"],
             path: "Tests/InsForgeDatabaseTests"
         ),
         .testTarget(
             name: "InsForgeStorageTests",
-            dependencies: ["InsForgeStorage"],
+            dependencies: ["InsForge", "InsForgeStorage", "TestHelper"],
             path: "Tests/InsForgeStorageTests"
         ),
         .testTarget(
             name: "InsForgeFunctionsTests",
-            dependencies: ["InsForgeFunctions"],
+            dependencies: ["InsForge", "InsForgeFunctions", "TestHelper"],
             path: "Tests/InsForgeFunctionsTests"
         ),
         .testTarget(
             name: "InsForgeAITests",
-            dependencies: ["InsForgeAI"],
+            dependencies: ["InsForge", "InsForgeAI", "TestHelper"],
             path: "Tests/InsForgeAITests"
         ),
         .testTarget(
             name: "InsForgeRealtimeTests",
-            dependencies: ["InsForgeRealtime"],
+            dependencies: ["InsForge", "InsForgeRealtime", "TestHelper"],
             path: "Tests/InsForgeRealtimeTests"
         ),
     ]

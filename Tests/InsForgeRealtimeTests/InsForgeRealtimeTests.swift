@@ -1,4 +1,5 @@
 import XCTest
+import TestHelper
 @testable import InsForgeRealtime
 @testable import InsForgeCore
 @testable import InsForge
@@ -9,16 +10,6 @@ import XCTest
 struct TestMessage: Codable, Equatable {
     let text: String
     let from: String
-}
-
-// MARK: - Test Configuration
-
-enum TestConfig {
-    static let baseURL = "https://pg6afqz9.us-east.insforge.app"
-    static let anonKey = "ik_ca177fcf1e2e72e8d1e0c2c23dbe3b79"
-    // Authenticated user token for testing
-    // swiftlint:disable:next line_length
-    static let userToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwODVhNDgxZS05NGI4LTRiZjktYjNhMC03ZjBlNTBmN2EwNzIiLCJlbWFpbCI6Imp1bndlbi5mZW5nQGluc2ZvcmdlLmRldiIsInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiaWF0IjoxNzY3NzQyMTE2LCJleHAiOjE3NjgzNDY5MTZ9.jhfprod2CU1Bn2j92wG9_j0MdmbtycpRI0SHoqqDtcc"
 }
 
 // MARK: - Tests
@@ -194,10 +185,7 @@ final class InsForgeRealtimeTests: XCTestCase {
     // MARK: - RealtimeClient Tests
 
     func testRealtimeClientCreation() {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey
-        )
+        let client = TestHelper.createClient()
 
         let realtime = client.realtime
         XCTAssertNotNil(realtime)
@@ -206,10 +194,7 @@ final class InsForgeRealtimeTests: XCTestCase {
     }
 
     func testRealtimeChannelCreation() {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey
-        )
+        let client = TestHelper.createClient()
 
         let channel = client.realtime.channel("test-channel")
         XCTAssertNotNil(channel)
@@ -218,10 +203,7 @@ final class InsForgeRealtimeTests: XCTestCase {
     }
 
     func testMultipleChannelCreation() {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey
-        )
+        let client = TestHelper.createClient()
 
         let channel1 = client.realtime.channel("channel-1")
         let channel2 = client.realtime.channel("channel-2")
@@ -243,10 +225,7 @@ final class InsForgeRealtimeTests: XCTestCase {
     // MARK: - Integration Tests (require network)
 
     func testConnectToRealtimeServer() async throws {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey
-        )
+        let client = TestHelper.createClient()
 
         do {
             try await client.realtime.connect()
@@ -266,10 +245,7 @@ final class InsForgeRealtimeTests: XCTestCase {
     }
 
     func testSubscribeToChannel() async throws {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey
-        )
+        let client = TestHelper.createClient()
 
         let channel = client.realtime.channel("test:broadcast")
 
@@ -292,12 +268,10 @@ final class InsForgeRealtimeTests: XCTestCase {
 
     func testSubscribeWithAuthenticatedToken() async throws {
         // Create client with custom headers containing user token
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey,
+        let client = TestHelper.createClient(
             options: InsForgeClientOptions(
                 global: InsForgeClientOptions.GlobalOptions(
-                    headers: ["Authorization": "Bearer \(TestConfig.userToken)"]
+                    headers: ["Authorization": "Bearer \(TestHelper.userToken)"]
                 )
             )
         )
@@ -414,10 +388,7 @@ final class InsForgeRealtimeTests: XCTestCase {
     }
 
     func testEventListenerRegistration() async throws {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey
-        )
+        let client = TestHelper.createClient()
 
         var connectCalled = false
         var disconnectCalled = false
@@ -455,12 +426,10 @@ final class InsForgeRealtimeTests: XCTestCase {
     }
 
     func testPublishMessage() async throws {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey,
+        let client = TestHelper.createClient(
             options: InsForgeClientOptions(
                 global: InsForgeClientOptions.GlobalOptions(
-                    headers: ["Authorization": "Bearer \(TestConfig.userToken)"]
+                    headers: ["Authorization": "Bearer \(TestHelper.userToken)"]
                 )
             )
         )
@@ -494,12 +463,10 @@ final class InsForgeRealtimeTests: XCTestCase {
             let userId: String
         }
 
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey,
+        let client = TestHelper.createClient(
             options: InsForgeClientOptions(
                 global: InsForgeClientOptions.GlobalOptions(
-                    headers: ["Authorization": "Bearer \(TestConfig.userToken)"]
+                    headers: ["Authorization": "Bearer \(TestHelper.userToken)"]
                 )
             )
         )
@@ -527,10 +494,7 @@ final class InsForgeRealtimeTests: XCTestCase {
     }
 
     func testGetSubscribedChannels() async throws {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey
-        )
+        let client = TestHelper.createClient()
 
         do {
             try await client.realtime.connect()
@@ -553,10 +517,7 @@ final class InsForgeRealtimeTests: XCTestCase {
     }
 
     func testUnsubscribeFromChannel() async throws {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey
-        )
+        let client = TestHelper.createClient()
 
         do {
             try await client.realtime.connect()
@@ -584,10 +545,7 @@ final class InsForgeRealtimeTests: XCTestCase {
     // MARK: - Channel Wrapper Tests
 
     func testChannelWrapperSubscribeUnsubscribe() async throws {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey
-        )
+        let client = TestHelper.createClient()
 
         let channel = client.realtime.channel("wrapper-test")
 
@@ -606,10 +564,7 @@ final class InsForgeRealtimeTests: XCTestCase {
     }
 
     func testChannelWrapperEventListener() async throws {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey
-        )
+        let client = TestHelper.createClient()
 
         let channel = client.realtime.channel("events-test")
 
@@ -633,12 +588,10 @@ final class InsForgeRealtimeTests: XCTestCase {
     }
 
     func testChannelWrapperBroadcast() async throws {
-        let client = InsForgeClient(
-            baseURL: URL(string: TestConfig.baseURL)!,
-            anonKey: TestConfig.anonKey,
+        let client = TestHelper.createClient(
             options: InsForgeClientOptions(
                 global: InsForgeClientOptions.GlobalOptions(
-                    headers: ["Authorization": "Bearer \(TestConfig.userToken)"]
+                    headers: ["Authorization": "Bearer \(TestHelper.userToken)"]
                 )
             )
         )

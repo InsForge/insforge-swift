@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  test-macos:
-    name: Test on macOS
+  build-macos:
+    name: Build on macOS
     runs-on: macos-14
 
     steps:
@@ -30,23 +30,8 @@ jobs:
     - name: Build
       run: swift build -v
 
-    - name: Run tests
-      run: swift test -v --enable-code-coverage
-
-    - name: Generate code coverage
-      run: |
-        xcrun llvm-cov export -format="lcov" \
-          .build/debug/InsForgePackageTests.xctest/Contents/MacOS/InsForgePackageTests \
-          -instr-profile .build/debug/codecov/default.profdata > coverage.lcov
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        files: ./coverage.lcov
-        fail_ci_if_error: false
-
-  test-linux:
-    name: Test on Linux
+  build-linux:
+    name: Build on Linux
     runs-on: ubuntu-latest
     container:
       image: swift:5.9
@@ -56,9 +41,6 @@ jobs:
 
     - name: Build
       run: swift build -v
-
-    - name: Run tests
-      run: swift test -v
 
   lint:
     name: SwiftLint

@@ -1,17 +1,13 @@
 import XCTest
 import Logging
+import TestHelper
 @testable import InsForge
 
 final class InsForgeClientTests: XCTestCase {
     var client: InsForgeClient!
-    var insforgeHost = "https://pg6afqz9.us-east.insforge.app"
-    var insforgeApiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3OC0xMjM0LTU2NzgtOTBhYi1jZGVmMTIzNDU2NzgiLCJlbWFpbCI6ImFub25AaW5zZm9yZ2UuY29tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5MDc5MzJ9.K0semVtcacV55qeEhVUI3WKWzT7p87JU7wNzdXysRWo"
 
     override func setUp() async throws {
-        client = InsForgeClient(
-            baseURL: URL(string: insforgeHost)!,
-            anonKey: insforgeApiKey
-        )
+        client = TestHelper.createClient()
     }
 
     override func tearDown() async throws {
@@ -19,8 +15,8 @@ final class InsForgeClientTests: XCTestCase {
     }
 
     func testClientInitialization() {
-        XCTAssertEqual(client.baseURL.absoluteString, insforgeHost)
-        XCTAssertEqual(client.anonKey, insforgeApiKey)
+        XCTAssertEqual(client.baseURL.absoluteString, TestHelper.insForgeURL)
+        XCTAssertEqual(client.anonKey, TestHelper.anonKey)
         // Headers are private, just verify client was created
         XCTAssertNotNil(client)
     }
@@ -36,9 +32,7 @@ final class InsForgeClientTests: XCTestCase {
     }
 
     func testCustomOptions() {
-        let customClient = InsForgeClient(
-            baseURL: URL(string: insforgeHost)!,
-            anonKey: insforgeApiKey,
+        let customClient = TestHelper.createClient(
             options: InsForgeClientOptions(
                 global: .init(
                     headers: ["X-Custom": "value"],

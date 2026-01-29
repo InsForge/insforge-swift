@@ -1,4 +1,5 @@
 import XCTest
+import TestHelper
 @testable import InsForge
 @testable import InsForgeDatabase
 @testable import InsForgeCore
@@ -23,7 +24,7 @@ struct Post: Codable, Equatable, Sendable {
     }
 }
 
-struct User: Codable, Equatable, Sendable {
+struct TestUser: Codable, Equatable, Sendable {
     let id: String?
     var email: String
     var name: String
@@ -40,19 +41,10 @@ struct User: Codable, Equatable, Sendable {
 // MARK: - Tests
 
 final class InsForgeDatabaseTests: XCTestCase {
-    // MARK: - Setup
-
-    private func createTestClient() -> InsForgeClient {
-        return InsForgeClient(
-            baseURL: URL(string: "https://pg6afqz9.us-east.insforge.app")!,
-            anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3OC0xMjM0LTU2NzgtOTBhYi1jZGVmMTIzNDU2NzgiLCJlbWFpbCI6ImFub25AaW5zZm9yZ2UuY29tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5MDc5MzJ9.K0semVtcacV55qeEhVUI3WKWzT7p87JU7wNzdXysRWo"
-        )
-    }
-
     // MARK: - Query Builder Tests
 
     func testQueryBuilderSelectModifier() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("posts")
 
         let modifiedBuilder = builder.select("id,title,content")
@@ -62,7 +54,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     }
 
     func testQueryBuilderFilterChaining() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("posts")
 
         let filtered = builder
@@ -77,7 +69,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     // MARK: - Filter Operators Tests
 
     func testQueryBuilderMultipleFilters() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("users")
 
         let filtered = builder
@@ -93,7 +85,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     }
 
     func testQueryBuilderComparisonOperators() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("posts")
 
         // Test all comparison operators
@@ -117,7 +109,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     }
 
     func testQueryBuilderPagination() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("posts")
 
         // First page
@@ -164,7 +156,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     func testUserModelEncoding() throws {
         let encoder = JSONEncoder()
 
-        let user = User(
+        let user = TestUser(
             id: "user-123",
             email: "test@example.com",
             name: "Test User",
@@ -242,7 +234,7 @@ final class InsForgeDatabaseTests: XCTestCase {
         """
 
         let data = jsonString.data(using: .utf8)!
-        let user = try decoder.decode(User.self, from: data)
+        let user = try decoder.decode(TestUser.self, from: data)
 
         XCTAssertEqual(user.id, "user-456")
         XCTAssertEqual(user.email, "john@example.com")
@@ -300,7 +292,7 @@ final class InsForgeDatabaseTests: XCTestCase {
         """
 
         let data = jsonString.data(using: .utf8)!
-        let user = try decoder.decode(User.self, from: data)
+        let user = try decoder.decode(TestUser.self, from: data)
 
         XCTAssertEqual(user.id, "user-789")
         XCTAssertEqual(user.email, "optional@example.com")
@@ -345,13 +337,13 @@ final class InsForgeDatabaseTests: XCTestCase {
     // MARK: - DatabaseClient Tests
 
     func testDatabaseClientFromTable() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("posts")
         XCTAssertNotNil(builder)
     }
 
     func testDatabaseClientMultipleTables() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
 
         let postsBuilder = await client.database.from("posts")
         XCTAssertNotNil(postsBuilder)
@@ -425,7 +417,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     }
 
     func testSelectWithCountOption() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("posts")
 
         // Test select with exact count
@@ -442,7 +434,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     }
 
     func testSelectWithHeadOption() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("posts")
 
         // Test select with head=true (count only, no data)
@@ -451,7 +443,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     }
 
     func testSelectWithCountAndFilters() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("posts")
 
         // Test combining count with filters
@@ -465,7 +457,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     }
 
     func testSelectColumnsWhitespaceCleanup() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("posts")
 
         // Test that whitespace in columns is cleaned up
@@ -478,7 +470,7 @@ final class InsForgeDatabaseTests: XCTestCase {
     }
 
     func testCountMethodBuilder() async {
-        let client = createTestClient()
+        let client = TestHelper.createClient()
         let builder = await client.database.from("posts")
 
         // Test count method with different options
@@ -491,8 +483,8 @@ final class InsForgeDatabaseTests: XCTestCase {
     func testQueryResultWithDifferentTypes() {
         // Test with User type
         let users = [
-            User(id: "1", email: "a@test.com", name: "User A", age: 25),
-            User(id: "2", email: "b@test.com", name: "User B", age: 30)
+            TestUser(id: "1", email: "a@test.com", name: "User A", age: 25),
+            TestUser(id: "2", email: "b@test.com", name: "User B", age: 30)
         ]
         let userResult = QueryResult(data: users, count: 50)
 

@@ -189,6 +189,7 @@ public struct SwiftLogNoOpLogHandler: Logging.LogHandler {
 
     public subscript(metadataKey key: String) -> Logging.Logger.Metadata.Value? {
         get { nil }
+        // swiftlint:disable:next unused_setter_value
         set { }
     }
 

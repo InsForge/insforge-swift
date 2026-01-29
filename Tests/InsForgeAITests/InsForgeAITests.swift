@@ -1,4 +1,5 @@
 import XCTest
+import TestHelper
 @testable import InsForge
 @testable import InsForgeAI
 @testable import InsForgeCore
@@ -14,24 +15,13 @@ import XCTest
 /// - Chat completion with various models
 /// - Image generation with various models
 final class InsForgeAITests: XCTestCase {
-    // MARK: - Configuration
-
-    /// Your InsForge instance URL
-    private let insForgeURL = "https://pg6afqz9.us-east.insforge.app"
-
-    /// Your InsForge API key
-    private let apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3OC0xMjM0LTU2NzgtOTBhYi1jZGVmMTIzNDU2NzgiLCJlbWFpbCI6ImFub25AaW5zZm9yZ2UuY29tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5MDc5MzJ9.K0semVtcacV55qeEhVUI3WKWzT7p87JU7wNzdXysRWo"
-
     // MARK: - Helper
 
     private var insForgeClient: InsForgeClient!
 
     override func setUp() async throws {
-        insForgeClient = InsForgeClient(
-            baseURL: URL(string: insForgeURL)!,
-            anonKey: apiKey
-        )
-        print("📍 InsForge URL: \(insForgeURL)")
+        insForgeClient = TestHelper.createClient()
+        print("📍 InsForge URL: \(TestHelper.insForgeURL)")
     }
 
     override func tearDown() async throws {
@@ -518,7 +508,7 @@ final class InsForgeAITests: XCTestCase {
                   model.id.contains("claude") && model.id.contains("thinking")
               }) else {
             // If no thinking model is explicitly available, skip the test
-            throw XCTSkip("No Claude model with thinking support is enabled on the server. Thinking mode requires specific model configuration.")
+            throw XCTSkip("No Claude model with thinking support is enabled on the server.")
         }
 
         print("   Using model: \(claudeModel.name) (\(claudeModel.id))")
