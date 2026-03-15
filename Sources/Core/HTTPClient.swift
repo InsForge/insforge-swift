@@ -190,6 +190,45 @@ public actor HTTPClient {
         return httpResponseObj
     }
 
+    /// Uploads multipart form data from disk without loading the entire request body into memory.
+    /// - Parameters:
+    ///   - url: The URL to upload to.
+    ///   - method: The HTTP method to use. Defaults to `.put`.
+    ///   - headers: Optional HTTP headers. Defaults to empty.
+    ///   - formFields: Additional multipart fields to include before the file part.
+    ///   - fileURL: The file URL to upload.
+    ///   - fileName: The filename to present in the multipart body.
+    ///   - mimeType: The MIME type of the file.
+    ///   - chunkSize: The chunk size to use while building the streamed multipart body.
+    /// - Returns: An `HTTPResponse` containing the response data.
+    /// - Throws: `InsForgeError` if the upload fails.
+    public func uploadMultipartForm(
+        url: URL,
+        method: HTTPMethod = .put,
+        headers: [String: String] = [:],
+        formFields: [String: String] = [:],
+        fileURL: URL,
+        fileName: String,
+        mimeType: String,
+        chunkSize: Int = 1_048_576
+    ) async throws -> HTTPResponse {
+        let bodyFile = try MultipartFormBodyFile.create(
+            formFields: formFields,
+            sourceFileURL: fileURL,
+            fileName: fileName,
+            mimeType: mimeType,
+            chunkSize: chunkSize
+        )
+        defer { bodyFile.cleanup() }
+
+        return try await uploadMultipartBodyFile(
+            url: url,
+            method: method,
+            headers: headers,
+            bodyFile: bodyFile
+        )
+    }
+
     // MARK: - Auto-Refresh Execution
 
     /// Executes an HTTP request with automatic token refresh on 401 errors.
@@ -294,6 +333,128 @@ public actor HTTPClient {
 
             // Not a 401 error, re-throw original error
             throw error
+        }
+    }
+
+    /// Uploads multipart form data from disk with automatic token refresh on 401 errors.
+    /// - Parameters:
+    ///   - url: The URL to upload to.
+    ///   - method: The HTTP method to use. Defaults to `.put`.
+    ///   - headers: HTTP headers. The Authorization header will be updated with refreshed token.
+    ///   - formFields: Additional multipart fields to include before the file part.
+    ///   - fileURL: The file URL to upload.
+    ///   - fileName: The filename to present in the multipart body.
+    ///   - mimeType: The MIME type of the file.
+    ///   - chunkSize: The chunk size to use while building the streamed multipart body.
+    ///   - refreshHandler: The handler responsible for refreshing the token.
+    /// - Returns: An `HTTPResponse` containing the response data.
+    /// - Throws: `InsForgeError` if the upload fails after retry, or if token refresh fails.
+    public func uploadMultipartFormWithAutoRefresh(
+        url: URL,
+        method: HTTPMethod = .put,
+        headers: [String: String],
+        formFields: [String: String] = [:],
+        fileURL: URL,
+        fileName: String,
+        mimeType: String,
+        chunkSize: Int = 1_048_576,
+        refreshHandler: TokenRefreshHandler
+    ) async throws -> HTTPResponse {
+        do {
+            return try await uploadMultipartForm(
+                url: url,
+                method: method,
+                headers: headers,
+                formFields: formFields,
+                fileURL: fileURL,
+                fileName: fileName,
+                mimeType: mimeType,
+                chunkSize: chunkSize
+            )
+        } catch let error as InsForgeError {
+            if case .httpError(let statusCode, _, _, _) = error, statusCode == 401 {
+                logger.debug("Received 401 during multipart upload, attempting token refresh...")
+
+                do {
+                    let newToken = try await refreshHandler.refreshToken()
+                    logger.debug("Token refreshed successfully, retrying multipart upload...")
+
+                    var updatedHeaders = headers
+                    updatedHeaders["Authorization"] = "Bearer \(newToken)"
+
+                    return try await uploadMultipartForm(
+                        url: url,
+                        method: method,
+                        headers: updatedHeaders,
+                        formFields: formFields,
+                        fileURL: fileURL,
+                        fileName: fileName,
+                        mimeType: mimeType,
+                        chunkSize: chunkSize
+                    )
+                } catch {
+                    logger.error("Token refresh failed during multipart upload: \(error)")
+                    throw InsForgeError.authenticationRequired
+                }
+            }
+
+            throw error
+        }
+    }
+
+    private func uploadMultipartBodyFile(
+        url: URL,
+        method: HTTPMethod,
+        headers: [String: String],
+        bodyFile: MultipartFormBodyFile
+    ) async throws -> HTTPResponse {
+        var request = URLRequest(url: url)
+        request.httpMethod = method.rawValue
+        guard let stream = InputStream(url: bodyFile.fileURL) else {
+            throw InsForgeError.unknown("Failed to open upload body stream")
+        }
+        request.httpBodyStream = stream
+
+        var allHeaders = headers
+        allHeaders["Content-Type"] = "multipart/form-data; boundary=\(bodyFile.boundary)"
+        allHeaders["Content-Length"] = String(bodyFile.contentLength)
+
+        for (key, value) in allHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+
+        logger.debug("[UPLOAD-\(method.rawValue)] \(url)")
+
+        do {
+            let (data, response) = try await session.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw InsForgeError.invalidResponse
+            }
+
+            logger.debug("Upload response status: \(httpResponse.statusCode)")
+
+            let httpResponseObj = HTTPResponse(
+                data: data,
+                response: httpResponse
+            )
+
+            if !(200..<300).contains(httpResponse.statusCode) {
+                let error = try? JSONDecoder().decode(ErrorResponse.self, from: data)
+                throw InsForgeError.httpError(
+                    statusCode: httpResponse.statusCode,
+                    message: error?.message ?? "Upload failed",
+                    error: error?.error,
+                    nextActions: error?.nextActions
+                )
+            }
+
+            return httpResponseObj
+        } catch let error as InsForgeError {
+            throw error
+        } catch {
+            logger.error("Network error: \(error)")
+            throw InsForgeError.networkError(error)
         }
     }
 }

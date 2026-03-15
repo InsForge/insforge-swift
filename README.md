@@ -137,6 +137,16 @@ let autoFile = try await client.storage
         fileName: "profile.jpg"
     )
 
+// Upload a large local file without loading the entire multipart body into memory
+let videoURL = URL(fileURLWithPath: "/tmp/demo.mov")
+let streamedFile = try await client.storage
+    .from("avatars")
+    .upload(
+        path: "videos/demo.mov",
+        fileURL: videoURL,
+        options: FileOptions(contentType: "video/quicktime", multipartChunkSize: 512 * 1024)
+    )
+
 // Download a file
 let data = try await client.storage
     .from("avatars")

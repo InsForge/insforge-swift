@@ -6,18 +6,25 @@ import Logging
 
 /// Options for file upload operations
 public struct FileOptions: Sendable {
+    public static let defaultMultipartChunkSize = 1_048_576
+
     /// The `Content-Type` header value. If not specified, it will be inferred from the file.
     public var contentType: String?
 
     /// Optional extra headers for the request.
     public var headers: [String: String]?
 
+    /// Chunk size in bytes used when building streamed multipart uploads from local files.
+    public var multipartChunkSize: Int
+
     public init(
         contentType: String? = nil,
-        headers: [String: String]? = nil
+        headers: [String: String]? = nil,
+        multipartChunkSize: Int = FileOptions.defaultMultipartChunkSize
     ) {
         self.contentType = contentType
         self.headers = headers
+        self.multipartChunkSize = multipartChunkSize
     }
 }
 
@@ -431,7 +438,8 @@ public struct StorageFileApi: Sendable {
         return storedFile
     }
 
-    /// Uploads a file from a local file URL.
+    /// Uploads a file from a local file URL using a streamed multipart body to avoid
+    /// materializing the full upload request in memory.
     /// - Parameters:
     ///   - path: The object key.
     ///   - fileURL: The local file URL to upload.
@@ -443,8 +451,39 @@ public struct StorageFileApi: Sendable {
         fileURL: URL,
         options: FileOptions = FileOptions()
     ) async throws -> StoredFile {
-        let data = try Data(contentsOf: fileURL)
-        return try await upload(path: path, data: data, options: options)
+        let contentType = options.contentType ?? inferContentType(from: path)
+        let fileSize = try fileSize(at: fileURL)
+
+        let strategy = try await getUploadStrategy(
+            filename: path,
+            contentType: contentType,
+            size: fileSize
+        )
+
+        try await uploadToStrategy(
+            strategy: strategy,
+            fileURL: fileURL,
+            fileName: (path as NSString).lastPathComponent,
+            contentType: contentType,
+            chunkSize: options.multipartChunkSize
+        )
+
+        if strategy.confirmRequired {
+            let storedFile = try await confirmUpload(
+                path: strategy.key,
+                size: fileSize,
+                contentType: contentType
+            )
+            logger.debug("File uploaded to '\(path)' via streamed multipart upload")
+            return storedFile
+        }
+
+        let files = try await list(options: ListOptions(prefix: strategy.key, limit: 1))
+        guard let storedFile = files.first else {
+            throw InsForgeError.httpError(statusCode: 404, message: "Uploaded file not found", error: nil, nextActions: nil)
+        }
+        logger.debug("File uploaded to '\(path)' via streamed multipart upload")
+        return storedFile
     }
 
     /// Uploads a file with auto-generated key using presigned URL flow.
@@ -502,13 +541,71 @@ public struct StorageFileApi: Sendable {
             try await uploadWithPresignedFields(url: uploadURL, fields: fields, data: data, contentType: contentType)
         } else {
             // Direct upload
-            _ = try await httpClient.upload(
+            if let handler = tokenRefreshHandler {
+                _ = try await httpClient.uploadWithAutoRefresh(
+                    url: uploadURL,
+                    method: .post,
+                    headers: headers,
+                    file: data,
+                    fileName: strategy.key,
+                    mimeType: contentType,
+                    refreshHandler: handler
+                )
+            } else {
+                _ = try await httpClient.upload(
+                    url: uploadURL,
+                    method: .post,
+                    headers: headers,
+                    file: data,
+                    fileName: strategy.key,
+                    mimeType: contentType
+                )
+            }
+        }
+    }
+
+    /// Internal method to upload a local file to the strategy endpoint using a streamed multipart body.
+    private func uploadToStrategy(
+        strategy: UploadStrategy,
+        fileURL: URL,
+        fileName: String,
+        contentType: String,
+        chunkSize: Int
+    ) async throws {
+        guard let uploadURL = URL(string: strategy.uploadUrl) else {
+            throw InsForgeError.invalidURL
+        }
+
+        if strategy.method == "presigned", let fields = strategy.fields {
+            _ = try await httpClient.uploadMultipartForm(
+                url: uploadURL,
+                method: .post,
+                formFields: fields,
+                fileURL: fileURL,
+                fileName: fileName,
+                mimeType: contentType,
+                chunkSize: chunkSize
+            )
+        } else if let handler = tokenRefreshHandler {
+            _ = try await httpClient.uploadMultipartFormWithAutoRefresh(
                 url: uploadURL,
                 method: .post,
                 headers: headers,
-                file: data,
-                fileName: strategy.key,
-                mimeType: contentType
+                fileURL: fileURL,
+                fileName: fileName,
+                mimeType: contentType,
+                chunkSize: chunkSize,
+                refreshHandler: handler
+            )
+        } else {
+            _ = try await httpClient.uploadMultipartForm(
+                url: uploadURL,
+                method: .post,
+                headers: headers,
+                fileURL: fileURL,
+                fileName: fileName,
+                mimeType: contentType,
+                chunkSize: chunkSize
             )
         }
     }
@@ -907,5 +1004,19 @@ public struct StorageFileApi: Sendable {
         default:
             return "application/octet-stream"
         }
+    }
+
+    private func fileSize(at fileURL: URL) throws -> Int {
+        let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+        if let fileSize = resourceValues.fileSize {
+            return fileSize
+        }
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        if let fileSize = attributes[.size] as? NSNumber {
+            return fileSize.intValue
+        }
+
+        throw InsForgeError.validationError("Unable to determine file size for upload")
     }
 }
