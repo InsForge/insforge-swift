@@ -26,18 +26,32 @@ struct MultipartFormBodyFile: Sendable {
             throw InsForgeError.unknown("Failed to create temporary upload body file")
         }
 
+        var shouldCleanupTemporaryFile = true
+        defer {
+            if shouldCleanupTemporaryFile {
+                try? FileManager.default.removeItem(at: tempFileURL)
+            }
+        }
+
         let outputHandle = try FileHandle(forWritingTo: tempFileURL)
         defer { try? outputHandle.close() }
 
-        for (key, value) in formFields {
-            try outputHandle.write(contentsOf: Data("--\(boundary)\r\n".utf8))
-            try outputHandle.write(contentsOf: Data("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".utf8))
-            try outputHandle.write(contentsOf: Data("\(value)\r\n".utf8))
+        var contentLength: UInt64 = 0
+
+        func write(_ data: Data) throws {
+            try outputHandle.write(contentsOf: data)
+            contentLength += UInt64(data.count)
         }
 
-        try outputHandle.write(contentsOf: Data("--\(boundary)\r\n".utf8))
-        try outputHandle.write(contentsOf: Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".utf8))
-        try outputHandle.write(contentsOf: Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
+        for (key, value) in formFields {
+            try write(Data("--\(boundary)\r\n".utf8))
+            try write(Data("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".utf8))
+            try write(Data("\(value)\r\n".utf8))
+        }
+
+        try write(Data("--\(boundary)\r\n".utf8))
+        try write(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".utf8))
+        try write(Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
 
         let inputHandle = try FileHandle(forReadingFrom: sourceFileURL)
         defer { try? inputHandle.close() }
@@ -47,19 +61,18 @@ struct MultipartFormBodyFile: Sendable {
             if chunk.isEmpty {
                 break
             }
-            try outputHandle.write(contentsOf: chunk)
+            try write(chunk)
         }
 
-        try outputHandle.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
+        try write(Data("\r\n--\(boundary)--\r\n".utf8))
         try outputHandle.synchronize()
 
-        let attributes = try FileManager.default.attributesOfItem(atPath: tempFileURL.path)
-        let fileSize = attributes[.size] as? NSNumber
+        shouldCleanupTemporaryFile = false
 
         return MultipartFormBodyFile(
             fileURL: tempFileURL,
             boundary: boundary,
-            contentLength: fileSize?.uint64Value ?? 0
+            contentLength: contentLength
         )
     }
 

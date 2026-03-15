@@ -210,7 +210,7 @@ public actor HTTPClient {
         fileURL: URL,
         fileName: String,
         mimeType: String,
-        chunkSize: Int = 1_048_576
+        chunkSize: Int = MultipartFormBodyFile.defaultChunkSize
     ) async throws -> HTTPResponse {
         let bodyFile = try MultipartFormBodyFile.create(
             formFields: formFields,
@@ -357,7 +357,7 @@ public actor HTTPClient {
         fileURL: URL,
         fileName: String,
         mimeType: String,
-        chunkSize: Int = 1_048_576,
+        chunkSize: Int = MultipartFormBodyFile.defaultChunkSize,
         refreshHandler: TokenRefreshHandler
     ) async throws -> HTTPResponse {
         do {

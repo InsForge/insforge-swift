@@ -420,14 +420,15 @@ public struct StorageFileApi: Sendable {
         )
 
         // 2. Upload to presigned URL or direct endpoint
-        try await uploadToStrategy(strategy: strategy, data: data, contentType: contentType)
+        let etag = try await uploadToStrategy(strategy: strategy, data: data, contentType: contentType)
 
         // 3. Confirm upload if required
         if strategy.confirmRequired {
             let storedFile = try await confirmUpload(
                 path: strategy.key,
                 size: data.count,
-                contentType: contentType
+                contentType: contentType,
+                etag: etag
             )
             logger.debug("File uploaded to '\(path)' via presigned URL")
             return storedFile
@@ -464,7 +465,7 @@ public struct StorageFileApi: Sendable {
             size: fileSize
         )
 
-        try await uploadToStrategy(
+        let etag = try await uploadToStrategy(
             strategy: strategy,
             fileURL: fileURL,
             fileName: (path as NSString).lastPathComponent,
@@ -476,7 +477,8 @@ public struct StorageFileApi: Sendable {
             let storedFile = try await confirmUpload(
                 path: strategy.key,
                 size: fileSize,
-                contentType: contentType
+                contentType: contentType,
+                etag: etag
             )
             logger.debug("File uploaded to '\(path)' via streamed multipart upload")
             return storedFile
@@ -512,14 +514,15 @@ public struct StorageFileApi: Sendable {
         )
 
         // 2. Upload to presigned URL or direct endpoint
-        try await uploadToStrategy(strategy: strategy, data: data, contentType: contentType)
+        let etag = try await uploadToStrategy(strategy: strategy, data: data, contentType: contentType)
 
         // 3. Confirm upload if required
         if strategy.confirmRequired {
             let storedFile = try await confirmUpload(
                 path: strategy.key,
                 size: data.count,
-                contentType: contentType
+                contentType: contentType,
+                etag: etag
             )
             logger.debug("File uploaded with auto-generated key via presigned URL")
             return storedFile
@@ -535,18 +538,18 @@ public struct StorageFileApi: Sendable {
     }
 
     /// Internal method to upload data to the strategy endpoint
-    private func uploadToStrategy(strategy: UploadStrategy, data: Data, contentType: String) async throws {
+    private func uploadToStrategy(strategy: UploadStrategy, data: Data, contentType: String) async throws -> String? {
         guard let uploadURL = URL(string: strategy.uploadUrl) else {
             throw InsForgeError.invalidURL
         }
 
         if strategy.method == "presigned", let fields = strategy.fields {
             // S3 presigned POST - include all fields from strategy
-            try await uploadWithPresignedFields(url: uploadURL, fields: fields, data: data, contentType: contentType)
+            return try await uploadWithPresignedFields(url: uploadURL, fields: fields, data: data, contentType: contentType)
         } else {
             // Direct upload
             if let handler = tokenRefreshHandler {
-                _ = try await httpClient.uploadWithAutoRefresh(
+                let response = try await httpClient.uploadWithAutoRefresh(
                     url: uploadURL,
                     method: .post,
                     headers: headers,
@@ -555,8 +558,9 @@ public struct StorageFileApi: Sendable {
                     mimeType: contentType,
                     refreshHandler: handler
                 )
+                return normalizedETag(from: response)
             } else {
-                _ = try await httpClient.upload(
+                let response = try await httpClient.upload(
                     url: uploadURL,
                     method: .post,
                     headers: headers,
@@ -564,6 +568,7 @@ public struct StorageFileApi: Sendable {
                     fileName: strategy.key,
                     mimeType: contentType
                 )
+                return normalizedETag(from: response)
             }
         }
     }
@@ -575,13 +580,13 @@ public struct StorageFileApi: Sendable {
         fileName: String,
         contentType: String,
         chunkSize: Int
-    ) async throws {
+    ) async throws -> String? {
         guard let uploadURL = URL(string: strategy.uploadUrl) else {
             throw InsForgeError.invalidURL
         }
 
         if strategy.method == "presigned", let fields = strategy.fields {
-            _ = try await httpClient.uploadMultipartForm(
+            let response = try await httpClient.uploadMultipartForm(
                 url: uploadURL,
                 method: .post,
                 formFields: fields,
@@ -590,8 +595,9 @@ public struct StorageFileApi: Sendable {
                 mimeType: contentType,
                 chunkSize: chunkSize
             )
+            return normalizedETag(from: response)
         } else if let handler = tokenRefreshHandler {
-            _ = try await httpClient.uploadMultipartFormWithAutoRefresh(
+            let response = try await httpClient.uploadMultipartFormWithAutoRefresh(
                 url: uploadURL,
                 method: .post,
                 headers: headers,
@@ -601,8 +607,9 @@ public struct StorageFileApi: Sendable {
                 chunkSize: chunkSize,
                 refreshHandler: handler
             )
+            return normalizedETag(from: response)
         } else {
-            _ = try await httpClient.uploadMultipartForm(
+            let response = try await httpClient.uploadMultipartForm(
                 url: uploadURL,
                 method: .post,
                 headers: headers,
@@ -611,11 +618,12 @@ public struct StorageFileApi: Sendable {
                 mimeType: contentType,
                 chunkSize: chunkSize
             )
+            return normalizedETag(from: response)
         }
     }
 
     /// Upload to S3 using presigned POST with form fields
-    private func uploadWithPresignedFields(url: URL, fields: [String: String], data: Data, contentType: String) async throws {
+    private func uploadWithPresignedFields(url: URL, fields: [String: String], data: Data, contentType: String) async throws -> String? {
         let boundary = UUID().uuidString
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -660,6 +668,17 @@ public struct StorageFileApi: Sendable {
                 nextActions: nil
             )
         }
+
+        return normalizedETag(from: httpResponse)
+    }
+
+    private func normalizedETag(from response: HTTPResponse) -> String? {
+        normalizedETag(from: response.response)
+    }
+
+    private func normalizedETag(from response: HTTPURLResponse) -> String? {
+        response.value(forHTTPHeaderField: "ETag")?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
     }
 
     // MARK: - Download

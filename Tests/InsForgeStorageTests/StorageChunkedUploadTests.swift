@@ -104,7 +104,10 @@ final class StorageChunkedUploadTests: XCTestCase {
 
         let uploadRequest = try XCTUnwrap(capturedRequests.first { $0.url.absoluteString == "https://uploads.example.com/presigned" })
         XCTAssertNil(uploadRequest.request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(uploadRequest.request.httpBody)
+        XCTAssertNotNil(uploadRequest.request.httpBodyStream)
         XCTAssertTrue(uploadRequest.request.value(forHTTPHeaderField: "Content-Type")?.contains("multipart/form-data; boundary=") == true)
+        XCTAssertEqual(uploadRequest.request.value(forHTTPHeaderField: "Content-Length"), String(uploadRequest.body.count))
 
         let uploadBodyString = try XCTUnwrap(String(data: uploadRequest.body, encoding: .utf8))
         XCTAssertTrue(uploadBodyString.contains("name=\"key\"\r\n\r\nuploads/large-file.txt"))
@@ -142,6 +145,23 @@ final class StorageChunkedUploadTests: XCTestCase {
 
             XCTAssertEqual(message, "Chunk size must be greater than 0")
         }
+    }
+
+    func testMultipartBodyFileCleansUpTemporaryFileWhenCreationFails() {
+        let existingTempFiles = multipartBodyTempFiles()
+        let missingSourceFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-source-\(UUID().uuidString).txt")
+
+        XCTAssertThrowsError(
+            try MultipartFormBodyFile.create(
+                formFields: [:],
+                sourceFileURL: missingSourceFileURL,
+                fileName: "missing.txt",
+                mimeType: "text/plain"
+            )
+        )
+
+        XCTAssertEqual(multipartBodyTempFiles(), existingTempFiles)
     }
 }
 
@@ -215,7 +235,7 @@ private final class MockURLProtocol: URLProtocol {
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         defer { buffer.deallocate() }
 
-        while stream.hasBytesAvailable {
+        while true {
             let read = stream.read(buffer, maxLength: bufferSize)
             if read > 0 {
                 data.append(buffer, count: read)
@@ -226,4 +246,18 @@ private final class MockURLProtocol: URLProtocol {
 
         return data
     }
+}
+
+private func multipartBodyTempFiles() -> Set<String> {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+    let temporaryFiles = (try? FileManager.default.contentsOfDirectory(
+        at: temporaryDirectory,
+        includingPropertiesForKeys: nil
+    )) ?? []
+
+    return Set(
+        temporaryFiles
+            .map(\.lastPathComponent)
+            .filter { $0.hasPrefix("insforge-multipart-") }
+    )
 }
