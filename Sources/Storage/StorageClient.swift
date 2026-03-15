@@ -2,6 +2,10 @@ import Foundation
 import InsForgeCore
 import Logging
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 // MARK: - Options
 
 /// Options for file upload operations

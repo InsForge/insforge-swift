@@ -3,6 +3,10 @@ import XCTest
 @testable import InsForgeCore
 @testable import InsForgeStorage
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 final class StorageChunkedUploadTests: XCTestCase {
     override func tearDown() {
         MockURLProtocol.reset()
