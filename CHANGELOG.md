@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Realtime auto-reconnect with bounded exponential backoff (max attempts + jitter), automatic channel re-subscription on reconnect, and `NWPathMonitor`-based network-aware retry behavior.
+
 ### Planned
 - Streaming support for AI chat completion
 - Batch operations for database
