@@ -16,6 +16,45 @@ public enum ConnectionState: String, Sendable {
     case connected
 }
 
+// MARK: - Public Options
+
+/// Reconnect configuration for realtime socket behavior.
+public struct RealtimeReconnectOptions: Sendable {
+    public let initialDelay: TimeInterval
+    public let multiplier: Double
+    public let maxDelay: TimeInterval
+    public let maxAttempts: Int
+    public let jitterFactor: Double
+
+    public init(
+        initialDelay: TimeInterval = 1.0,
+        multiplier: Double = 2.0,
+        maxDelay: TimeInterval = 30.0,
+        maxAttempts: Int = 8,
+        jitterFactor: Double = 0.2
+    ) {
+        self.initialDelay = initialDelay
+        self.multiplier = multiplier
+        self.maxDelay = maxDelay
+        self.maxAttempts = maxAttempts
+        self.jitterFactor = jitterFactor
+    }
+}
+
+/// Realtime client options.
+public struct RealtimeOptions: Sendable {
+    public let reconnect: RealtimeReconnectOptions
+    public let connectionTimeout: TimeInterval
+
+    public init(
+        reconnect: RealtimeReconnectOptions = .init(),
+        connectionTimeout: TimeInterval = 10
+    ) {
+        self.reconnect = reconnect
+        self.connectionTimeout = connectionTimeout
+    }
+}
+
 // MARK: - Reconnect Policy
 
 internal struct ReconnectPolicy: Sendable {
@@ -25,6 +64,20 @@ internal struct ReconnectPolicy: Sendable {
     let maxAttempts: Int
     let jitterFactor: Double
 
+    init(
+        initialDelay: TimeInterval,
+        multiplier: Double,
+        maxDelay: TimeInterval,
+        maxAttempts: Int,
+        jitterFactor: Double
+    ) {
+        self.initialDelay = initialDelay
+        self.multiplier = multiplier
+        self.maxDelay = maxDelay
+        self.maxAttempts = maxAttempts
+        self.jitterFactor = jitterFactor
+    }
+
     static let `default` = ReconnectPolicy(
         initialDelay: 1.0,
         multiplier: 2.0,
@@ -32,6 +85,14 @@ internal struct ReconnectPolicy: Sendable {
         maxAttempts: 8,
         jitterFactor: 0.2
     )
+
+    init(options: RealtimeReconnectOptions) {
+        self.initialDelay = max(0, options.initialDelay)
+        self.multiplier = max(1, options.multiplier)
+        self.maxDelay = max(0, options.maxDelay)
+        self.maxAttempts = max(0, options.maxAttempts)
+        self.jitterFactor = min(max(0, options.jitterFactor), 1)
+    }
 
     func baseDelay(forAttempt attempt: Int) -> TimeInterval {
         let exponent = max(0, attempt - 1)
@@ -75,10 +136,16 @@ internal struct ReconnectRuntimeState: Sendable {
         isManuallyDisconnected = true
     }
 
-    mutating func setNetworkAvailability(_ isAvailable: Bool) -> Bool {
-        let hasChanged = isNetworkAvailable != isAvailable
+    mutating func applyNetworkAvailability(_ isAvailable: Bool) -> (didChange: Bool, becameAvailable: Bool) {
+        let wasAvailable = isNetworkAvailable
         isNetworkAvailable = isAvailable
-        return hasChanged
+
+        let becameAvailable = !wasAvailable && isAvailable
+        if becameAvailable {
+            retryAttempt = 0
+        }
+
+        return (wasAvailable != isAvailable, becameAvailable)
     }
 
     mutating func nextReconnectDecision(
@@ -114,6 +181,11 @@ internal struct ReconnectCoordinatorState: Sendable {
     var connectTaskToken: UUID?
     var reconnectTask: Task<Void, Never>?
     var reconnectTaskToken: UUID?
+}
+
+private struct SocketRuntimeState {
+    var manager: SocketManager?
+    var socket: SocketIOClient?
 }
 
 // MARK: - Subscribe Response
@@ -294,13 +366,12 @@ public final class RealtimeClient: @unchecked Sendable {
     private let headersProvider: LockIsolated<[String: String]>
     private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
-    private var manager: SocketManager?
-    private var socket: SocketIOClient?
+    private let socketRuntimeState = LockIsolated<SocketRuntimeState>(SocketRuntimeState())
     private let subscribedChannels = LockIsolated<Set<String>>(Set())
     private let eventListeners = LockIsolated<[String: [UUID: CallbackWrapper<SocketMessage>]]>([:])
     private let reconnectCoordinator = LockIsolated<ReconnectCoordinatorState>(ReconnectCoordinatorState())
-    private let reconnectPolicy = ReconnectPolicy.default
-    private let connectionTimeout: TimeInterval = 10
+    private let reconnectPolicy: ReconnectPolicy
+    private let connectionTimeout: TimeInterval
     private let reconnectErrorDomain = "InsForgeRealtimeReconnect"
     private let jitterRandomProvider: @Sendable () -> Double
 
@@ -320,11 +391,14 @@ public final class RealtimeClient: @unchecked Sendable {
     public init(
         url: URL,
         apiKey: String,
-        headersProvider: LockIsolated<[String: String]>
+        headersProvider: LockIsolated<[String: String]>,
+        options: RealtimeOptions = .init()
     ) {
         self.url = url
         self.apiKey = apiKey
         self.headersProvider = headersProvider
+        self.reconnectPolicy = ReconnectPolicy(options: options.reconnect)
+        self.connectionTimeout = max(0, options.connectionTimeout)
         self.jitterRandomProvider = { Double.random(in: 0...1) }
         startNetworkMonitoring()
     }
@@ -341,13 +415,12 @@ public final class RealtimeClient: @unchecked Sendable {
 
     /// Check if connected to the realtime server
     public var isConnected: Bool {
-        socket?.status == .connected
+        currentSocketStatus() == .connected
     }
 
     /// Get the current connection state
     public var connectionState: ConnectionState {
-        guard let socket = socket else { return .disconnected }
-        switch socket.status {
+        switch currentSocketStatus() {
         case .connected: return .connected
         case .connecting: return .connecting
         default: return .disconnected
@@ -356,7 +429,7 @@ public final class RealtimeClient: @unchecked Sendable {
 
     /// Get the socket ID (if connected)
     public var socketId: String? {
-        socket?.sid
+        currentSocket()?.sid
     }
 
     // MARK: - Connection
@@ -364,7 +437,7 @@ public final class RealtimeClient: @unchecked Sendable {
     /// Connect to the realtime server
     public func connect() async throws {
         // Already connected
-        if socket?.status == .connected {
+        if currentSocketStatus() == .connected {
             logger.debug("Already connected, skipping connect()")
             return
         }
@@ -418,10 +491,9 @@ public final class RealtimeClient: @unchecked Sendable {
         cancelReconnectTask()
         cancelConnectTask()
 
-        socket?.disconnect()
-        socket?.removeAllHandlers()
-        socket = nil
-        manager = nil
+        let socketToDisconnect = clearSocketRuntimeState()
+        socketToDisconnect?.disconnect()
+        socketToDisconnect?.removeAllHandlers()
         subscribedChannels.setValue(Set())
         logger.debug("Disconnected")
     }
@@ -512,7 +584,7 @@ public final class RealtimeClient: @unchecked Sendable {
         }
 
         // Auto-connect if not connected
-        if socket?.status != .connected {
+        if currentSocketStatus() != .connected {
             do {
                 try await connect()
             } catch {
@@ -521,7 +593,7 @@ public final class RealtimeClient: @unchecked Sendable {
             }
         }
 
-        guard let socket = socket else {
+        guard let socket = currentSocket() else {
             return .failure(channel: channel, code: "NO_SOCKET", message: "Socket not initialized")
         }
 
@@ -545,7 +617,7 @@ public final class RealtimeClient: @unchecked Sendable {
                 }
 
                 if let ok = response["ok"] as? Bool, ok {
-                    self?.subscribedChannels.withValue { $0.insert(channel) }
+                    _ = self?.subscribedChannels.withValue { $0.insert(channel) }
                     continuation.resume(returning: .success(channel: channel))
                 } else if let error = response["error"] as? [String: Any],
                           let code = error["code"] as? String,
@@ -561,12 +633,12 @@ public final class RealtimeClient: @unchecked Sendable {
     /// Unsubscribe from a channel (fire-and-forget)
     /// - Parameter channel: Channel name to unsubscribe from
     public func unsubscribe(from channel: String) {
-        subscribedChannels.withValue { $0.remove(channel) }
+        _ = subscribedChannels.withValue { $0.remove(channel) }
 
-        if socket?.status == .connected {
+        if let socket = connectedSocketForIO() {
             let unsubscribePayload = ["channel": channel]
             logger.debug("[>>>] realtime:unsubscribe: \(unsubscribePayload)")
-            socket?.emit("realtime:unsubscribe", unsubscribePayload)
+            socket.emit("realtime:unsubscribe", unsubscribePayload)
         }
     }
 
@@ -578,7 +650,7 @@ public final class RealtimeClient: @unchecked Sendable {
     ///   - event: Event name
     ///   - payload: Message payload
     public func publish(to channel: String, event: String, payload: [String: Any]) throws {
-        guard socket?.status == .connected else {
+        guard let socket = connectedSocketForIO() else {
             throw InsForgeError.unknown("Not connected to realtime server. Call connect() first.")
         }
 
@@ -589,7 +661,7 @@ public final class RealtimeClient: @unchecked Sendable {
         ]
 
         logger.debug("[>>>] realtime:publish: \(publishPayload)")
-        socket?.emit("realtime:publish", publishPayload)
+        socket.emit("realtime:publish", publishPayload)
     }
 
     /// Publish a message with Encodable payload
@@ -632,7 +704,7 @@ public final class RealtimeClient: @unchecked Sendable {
 
     /// Remove all listeners for an event
     public func offAll(_ event: String) {
-        eventListeners.withValue { $0.removeValue(forKey: event) }
+        _ = eventListeners.withValue { $0.removeValue(forKey: event) }
     }
 
     // MARK: - Connection Event Listeners
@@ -682,6 +754,44 @@ public final class RealtimeClient: @unchecked Sendable {
 
     // MARK: - Private Methods
 
+    private func currentSocket() -> SocketIOClient? {
+        socketRuntimeState.value.socket
+    }
+
+    private func currentSocketStatus() -> SocketIOStatus {
+        socketRuntimeState.value.socket?.status ?? .disconnected
+    }
+
+    private func connectedSocketForIO() -> SocketIOClient? {
+        socketRuntimeState.withValue { state in
+            guard state.socket?.status == .connected else {
+                return nil
+            }
+            return state.socket
+        }
+    }
+
+    private func clearSocketRuntimeState() -> SocketIOClient? {
+        socketRuntimeState.withValue { state in
+            let activeSocket = state.socket
+            state.socket = nil
+            state.manager = nil
+            return activeSocket
+        }
+    }
+
+    private func initializeSocketRuntimeIfNeeded(manager: SocketManager, socket: SocketIOClient) -> SocketIOClient {
+        socketRuntimeState.withValue { state in
+            if let existingSocket = state.socket {
+                return existingSocket
+            }
+
+            state.manager = manager
+            state.socket = socket
+            return socket
+        }
+    }
+
     private func currentAuthToken() -> String {
         let headers = headersProvider.value
         return headers["Authorization"]?.replacingOccurrences(of: "Bearer ", with: "") ?? apiKey
@@ -710,19 +820,27 @@ public final class RealtimeClient: @unchecked Sendable {
                 return
             }
 
-            var completed = false
-            var connectHandlerId: UUID?
-            var errorHandlerId: UUID?
+            struct ConnectAttemptCompletionState {
+                var completed = false
+                var connectHandlerId: UUID?
+                var errorHandlerId: UUID?
+            }
+            let completionState = LockIsolated(ConnectAttemptCompletionState())
 
             func complete(with result: Result<Void, Error>) {
-                guard !completed else { return }
-                completed = true
+                let handlerIds = completionState.withValue { state -> (UUID?, UUID?)? in
+                    guard !state.completed else { return nil }
+                    state.completed = true
+                    return (state.connectHandlerId, state.errorHandlerId)
+                }
 
-                if let connectHandlerId {
+                guard let handlerIds else { return }
+
+                if let connectHandlerId = handlerIds.0 {
                     socket.off(id: connectHandlerId)
                 }
 
-                if let errorHandlerId {
+                if let errorHandlerId = handlerIds.1 {
                     socket.off(id: errorHandlerId)
                 }
 
@@ -734,13 +852,15 @@ public final class RealtimeClient: @unchecked Sendable {
                 }
             }
 
-            connectHandlerId = socket.on(clientEvent: .connect) { _, _ in
+            let connectHandlerId = socket.on(clientEvent: .connect) { _, _ in
                 complete(with: .success(()))
             }
+            completionState.withValue { $0.connectHandlerId = connectHandlerId }
 
-            errorHandlerId = socket.on(clientEvent: .error) { data, _ in
+            let errorHandlerId = socket.on(clientEvent: .error) { data, _ in
                 complete(with: .failure(Self.connectionError(from: data)))
             }
+            completionState.withValue { $0.errorHandlerId = errorHandlerId }
 
             socket.connect(withPayload: authPayload, timeoutAfter: self.connectionTimeout) {
                 complete(with: .failure(
@@ -755,7 +875,7 @@ public final class RealtimeClient: @unchecked Sendable {
     }
 
     private func ensureSocketInitialized() throws -> SocketIOClient {
-        if let socket {
+        if let socket = currentSocket() {
             return socket
         }
 
@@ -766,16 +886,16 @@ public final class RealtimeClient: @unchecked Sendable {
             .reconnects(false)
         ]
 
-        manager = SocketManager(socketURL: url, config: config)
-        socket = manager?.defaultSocket
+        let manager = SocketManager(socketURL: url, config: config)
+        let newSocket = manager.defaultSocket
 
-        guard let socket else {
-            logError("Failed to create socket")
-            throw InsForgeError.unknown("Failed to create socket")
+        setupEventHandlers(newSocket)
+        let activeSocket = initializeSocketRuntimeIfNeeded(manager: manager, socket: newSocket)
+        if activeSocket !== newSocket {
+            newSocket.removeAllHandlers()
+            newSocket.disconnect()
         }
-
-        setupEventHandlers(socket)
-        return socket
+        return activeSocket
     }
 
     private func clearConnectTaskIfNeeded(token: UUID) {
@@ -817,16 +937,24 @@ public final class RealtimeClient: @unchecked Sendable {
     }
 
     private func scheduleReconnect(reason: String) {
+        struct ReconnectScheduleReservation {
+            let token: UUID
+            let attempt: Int
+            let delay: TimeInterval
+        }
+
         var scheduledAttempt: Int?
         var scheduledDelay: TimeInterval?
         var shouldEmitMaxRetryError = false
+        var reservation: ReconnectScheduleReservation?
+        let isSocketConnected = currentSocketStatus() == .connected
 
         reconnectCoordinator.withValue { coordinator in
             let decision = coordinator.runtime.nextReconnectDecision(
                 policy: reconnectPolicy,
-                hasPendingReconnectTask: coordinator.reconnectTask != nil,
+                hasPendingReconnectTask: coordinator.reconnectTask != nil || coordinator.reconnectTaskToken != nil,
                 hasActiveConnectTask: coordinator.connectTask != nil,
-                isSocketConnected: socket?.status == .connected
+                isSocketConnected: isSocketConnected
             )
 
             switch decision {
@@ -839,28 +967,46 @@ public final class RealtimeClient: @unchecked Sendable {
                 let token = UUID()
 
                 coordinator.reconnectTaskToken = token
-                coordinator.reconnectTask = Task { [weak self] in
-                    guard let self = self else { return }
-
-                    do {
-                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                    } catch {
-                        return
-                    }
-
-                    self.clearReconnectTaskIfNeeded(token: token)
-
-                    do {
-                        try await self.connect()
-                    } catch {
-                        guard !(error is CancellationError) else { return }
-                        self.logError("Reconnect attempt \(attempt) failed: \(error.localizedDescription)")
-                        self.scheduleReconnect(reason: "reconnect_attempt_\(attempt)_failed")
-                    }
-                }
-
+                coordinator.reconnectTask = nil
+                reservation = ReconnectScheduleReservation(token: token, attempt: attempt, delay: delay)
                 scheduledAttempt = attempt
                 scheduledDelay = delay
+            }
+        }
+
+        if let reservation {
+            let reconnectTask = Task { [weak self] in
+                guard let self = self else { return }
+
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(reservation.delay * 1_000_000_000))
+                } catch {
+                    return
+                }
+
+                self.clearReconnectTaskIfNeeded(token: reservation.token)
+
+                do {
+                    try await self.connect()
+                } catch {
+                    guard !(error is CancellationError) else { return }
+                    self.logError("Reconnect attempt \(reservation.attempt) failed: \(error.localizedDescription)")
+                    self.scheduleReconnect(reason: "reconnect_attempt_\(reservation.attempt)_failed")
+                }
+            }
+
+            let didAttach = reconnectCoordinator.withValue { coordinator -> Bool in
+                guard coordinator.reconnectTaskToken == reservation.token,
+                      coordinator.reconnectTask == nil else {
+                    return false
+                }
+
+                coordinator.reconnectTask = reconnectTask
+                return true
+            }
+
+            if !didAttach {
+                reconnectTask.cancel()
             }
         }
 
@@ -890,7 +1036,7 @@ public final class RealtimeClient: @unchecked Sendable {
         }
 
         reconnectTaskToCancel?.cancel()
-        logDebug("Connected successfully, Socket ID: \(socket?.sid ?? "unknown")")
+        logDebug("Connected successfully, Socket ID: \(currentSocket()?.sid ?? "unknown")")
         resubscribeToChannels()
         notifyConnect()
     }
@@ -922,13 +1068,16 @@ public final class RealtimeClient: @unchecked Sendable {
     }
 
     private func handleNetworkAvailabilityChange(_ isAvailable: Bool) {
-        let didChange = reconnectCoordinator.withValue { coordinator in
-            coordinator.runtime.setNetworkAvailability(isAvailable)
+        let transition = reconnectCoordinator.withValue { coordinator in
+            coordinator.runtime.applyNetworkAvailability(isAvailable)
         }
 
-        guard didChange else { return }
+        guard transition.didChange else { return }
 
         if isAvailable {
+            if transition.becameAvailable {
+                logDebug("Network restored. Reconnect retry counter reset.")
+            }
             logDebug("Network is reachable. Evaluating pending reconnect flow.")
             scheduleReconnect(reason: "network_available")
         } else {
@@ -970,11 +1119,12 @@ public final class RealtimeClient: @unchecked Sendable {
     }
 
     private func resubscribeToChannels() {
+        guard let socket = connectedSocketForIO() else { return }
         let channels = subscribedChannels.value
         for channel in channels {
             let payload = ["channel": channel]
             logger.debug("[>>>] realtime:subscribe (re-subscribe): \(payload)")
-            socket?.emit("realtime:subscribe", payload)
+            socket.emit("realtime:subscribe", payload)
         }
     }
 

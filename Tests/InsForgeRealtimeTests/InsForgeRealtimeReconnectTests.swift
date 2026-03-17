@@ -61,7 +61,7 @@ final class InsForgeRealtimeReconnectTests: XCTestCase {
         let policy = ReconnectPolicy.default
         var state = ReconnectRuntimeState()
         state.prepareForConnectionRequest()
-        _ = state.setNetworkAvailability(false)
+        _ = state.applyNetworkAvailability(false)
 
         let decision = state.nextReconnectDecision(
             policy: policy,
@@ -78,7 +78,7 @@ final class InsForgeRealtimeReconnectTests: XCTestCase {
         var state = ReconnectRuntimeState()
         state.prepareForConnectionRequest()
 
-        _ = state.setNetworkAvailability(false)
+        _ = state.applyNetworkAvailability(false)
         let blockedDecision = state.nextReconnectDecision(
             policy: policy,
             hasPendingReconnectTask: false,
@@ -87,7 +87,7 @@ final class InsForgeRealtimeReconnectTests: XCTestCase {
         )
         XCTAssertEqual(blockedDecision, .none)
 
-        _ = state.setNetworkAvailability(true)
+        _ = state.applyNetworkAvailability(true)
         let resumedDecision = state.nextReconnectDecision(
             policy: policy,
             hasPendingReconnectTask: false,
@@ -162,5 +162,49 @@ final class InsForgeRealtimeReconnectTests: XCTestCase {
 
         XCTAssertEqual(decision, .none)
         XCTAssertEqual(state.retryAttempt, 0)
+    }
+
+    func testRetryAttemptResetsWhenNetworkIsRestored() {
+        let policy = ReconnectPolicy.default
+        var state = ReconnectRuntimeState()
+        state.prepareForConnectionRequest()
+
+        _ = state.nextReconnectDecision(
+            policy: policy,
+            hasPendingReconnectTask: false,
+            hasActiveConnectTask: false,
+            isSocketConnected: false
+        )
+        _ = state.nextReconnectDecision(
+            policy: policy,
+            hasPendingReconnectTask: false,
+            hasActiveConnectTask: false,
+            isSocketConnected: false
+        )
+
+        XCTAssertEqual(state.retryAttempt, 2)
+
+        let becameOffline = state.applyNetworkAvailability(false)
+        XCTAssertTrue(becameOffline.didChange)
+        XCTAssertFalse(becameOffline.becameAvailable)
+        XCTAssertEqual(state.retryAttempt, 2)
+
+        let becameOnline = state.applyNetworkAvailability(true)
+        XCTAssertTrue(becameOnline.didChange)
+        XCTAssertTrue(becameOnline.becameAvailable)
+        XCTAssertEqual(state.retryAttempt, 0)
+
+        let decision = state.nextReconnectDecision(
+            policy: policy,
+            hasPendingReconnectTask: false,
+            hasActiveConnectTask: false,
+            isSocketConnected: false
+        )
+
+        if case .schedule(let attempt, _) = decision {
+            XCTAssertEqual(attempt, 1)
+        } else {
+            XCTFail("Expected reconnect attempt counter to restart after network recovery")
+        }
     }
 }
