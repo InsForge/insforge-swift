@@ -12,11 +12,11 @@ public enum NetworkError: Error, LocalizedError, Sendable {
     /// The request was cancelled by the caller.
     case cancelled
     /// The server's SSL/TLS certificate is invalid or untrusted.
-    case sslError(Error)
+    case sslError(String)
     /// A DNS lookup or host connection failed.
-    case cannotConnect(Error)
+    case cannotConnect(String)
     /// Any other transport-layer error not matched above.
-    case other(Error)
+    case other(String)
 
     /// A localized description of the error.
     public var errorDescription: String? {
@@ -27,12 +27,12 @@ public enum NetworkError: Error, LocalizedError, Sendable {
             return "No network connection available"
         case .cancelled:
             return "The request was cancelled"
-        case .sslError(let error):
-            return "SSL error: \(error.localizedDescription)"
-        case .cannotConnect(let error):
-            return "Cannot connect to server: \(error.localizedDescription)"
-        case .other(let error):
-            return "Network error: \(error.localizedDescription)"
+        case .sslError(let message):
+            return "SSL error: \(message)"
+        case .cannotConnect(let message):
+            return "Cannot connect to server: \(message)"
+        case .other(let message):
+            return "Network error: \(message)"
         }
     }
 
@@ -54,13 +54,13 @@ public enum NetworkError: Error, LocalizedError, Sendable {
              NSURLErrorServerCertificateNotYetValid,
              NSURLErrorClientCertificateRejected,
              NSURLErrorClientCertificateRequired:
-            return .sslError(error)
+            return .sslError(error.localizedDescription)
         case NSURLErrorCannotFindHost,
              NSURLErrorCannotConnectToHost,
              NSURLErrorDNSLookupFailed:
-            return .cannotConnect(error)
+            return .cannotConnect(error.localizedDescription)
         default:
-            return .other(error)
+            return .other(error.localizedDescription)
         }
     }
 }

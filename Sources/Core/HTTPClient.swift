@@ -72,6 +72,15 @@ public struct RetryConfiguration: Sendable {
     }
 }
 
+/// Carries a 429 response's `InsForgeError` together with the parsed `Retry-After`
+/// delay. Using a dedicated error type (rather than actor-stored mutable state) ensures
+/// that concurrent retry loops each get their own `Retry-After` value and cannot
+/// accidentally read a value written by a different concurrent request.
+private struct RateLimitedError: Error {
+    let insForgeError: InsForgeError
+    let retryAfter: TimeInterval?
+}
+
 /// HTTP Client for making network requests.
 ///
 /// This actor provides thread-safe HTTP request execution with support for
@@ -80,10 +89,6 @@ public actor HTTPClient {
     private let session: URLSession
     private let retry: RetryConfiguration
     private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
-
-    /// Stores the `Retry-After` value from the most recent 429 response so that
-    /// `withRetry` can read it from within the same actor context.
-    private var lastRetryAfterSeconds: TimeInterval?
 
     /// Creates a new HTTP client.
     /// - Parameters:
@@ -136,8 +141,9 @@ public actor HTTPClient {
     /// Performs a single `URLSession` round-trip and converts the result into
     /// an `HTTPResponse`, throwing `InsForgeError` on non-2xx status codes.
     ///
-    /// Side-effect: when a 429 response is received, `lastRetryAfterSeconds` is
-    /// updated so that the retry loop can honour the `Retry-After` header.
+    /// For 429 responses, throws `RateLimitedError` (a private type) so that the
+    /// parsed `Retry-After` value travels with the error rather than being stored as
+    /// mutable actor state (which could be overwritten by a concurrent request).
     private func performRequest(_ request: URLRequest) async throws -> HTTPResponse {
         do {
             let (data, response) = try await session.data(for: request)
@@ -152,22 +158,28 @@ public actor HTTPClient {
             }
 
             if !(200..<300).contains(httpResponse.statusCode) {
-                // Capture Retry-After for rate-limit responses before throwing.
-                if httpResponse.statusCode == 429 {
-                    lastRetryAfterSeconds = parseRetryAfter(from: httpResponse)
-                }
-
                 let errorBody = try? JSONDecoder().decode(ErrorResponse.self, from: data)
                 logger.error("HTTP Error: status=\(httpResponse.statusCode), message=\(errorBody?.message ?? "Request failed")")
-                throw InsForgeError.httpError(
+                let insForgeError = InsForgeError.httpError(
                     statusCode: httpResponse.statusCode,
                     message: errorBody?.message ?? "Request failed",
                     error: errorBody?.error,
                     nextActions: errorBody?.nextActions
                 )
+                // For 429, carry the Retry-After value through a private error wrapper
+                // so that concurrent retry loops each see their own value.
+                if httpResponse.statusCode == 429 {
+                    throw RateLimitedError(
+                        insForgeError: insForgeError,
+                        retryAfter: parseRetryAfter(from: httpResponse)
+                    )
+                }
+                throw insForgeError
             }
 
             return HTTPResponse(data: data, response: httpResponse)
+        } catch let error as RateLimitedError {
+            throw error
         } catch let error as InsForgeError {
             throw error
         } catch {
@@ -201,7 +213,9 @@ public actor HTTPClient {
     /// Executes `operation` with automatic retry on transient failures.
     ///
     /// - 429 responses: waits for the duration specified in `Retry-After` (or falls
-    ///   back to the computed back-off delay).
+    ///   back to the computed back-off delay). The delay is read from the private
+    ///   `RateLimitedError` wrapper — never from shared actor state — so concurrent
+    ///   requests cannot interfere with each other's retry timing.
     /// - 5xx responses / transient network errors: uses truncated exponential back-off.
     private func withRetry(
         _ operation: () async throws -> HTTPResponse
@@ -210,28 +224,29 @@ public actor HTTPClient {
         while true {
             do {
                 return try await operation()
+            } catch let rateLimited as RateLimitedError {
+                let error = rateLimited.insForgeError
+                guard retry.maxRetries > 0,
+                      attempt < retry.maxRetries,
+                      isRetryableError(error) else {
+                    throw error
+                }
+                let waitTime = rateLimited.retryAfter ?? retry.delay(for: attempt)
+                logger.warning("Rate limited (429). Retrying after \(waitTime)s (attempt \(attempt + 1)/\(retry.maxRetries))…")
+                try await Task.sleep(nanoseconds: UInt64(waitTime * 1_000_000_000))
+                attempt += 1
             } catch let error as InsForgeError {
                 guard retry.maxRetries > 0,
                       attempt < retry.maxRetries,
                       isRetryableError(error) else {
                     throw error
                 }
-
-                let waitTime: TimeInterval
-                if case .httpError(429, _, _, _) = error,
-                   let retryAfter = lastRetryAfterSeconds {
-                    waitTime = retryAfter
-                    lastRetryAfterSeconds = nil
-                    logger.warning("Rate limited (429). Retrying after \(waitTime)s (attempt \(attempt + 1)/\(retry.maxRetries))…")
+                let waitTime = retry.delay(for: attempt)
+                if case .httpError(let code, _, _, _) = error {
+                    logger.warning("HTTP \(code) error. Retrying in \(String(format: "%.2f", waitTime))s (attempt \(attempt + 1)/\(retry.maxRetries))…")
                 } else {
-                    waitTime = retry.delay(for: attempt)
-                    if case .httpError(let code, _, _, _) = error {
-                        logger.warning("HTTP \(code) error. Retrying in \(String(format: "%.2f", waitTime))s (attempt \(attempt + 1)/\(retry.maxRetries))…")
-                    } else {
-                        logger.warning("Transient network error. Retrying in \(String(format: "%.2f", waitTime))s (attempt \(attempt + 1)/\(retry.maxRetries))…")
-                    }
+                    logger.warning("Transient network error. Retrying in \(String(format: "%.2f", waitTime))s (attempt \(attempt + 1)/\(retry.maxRetries))…")
                 }
-
                 try await Task.sleep(nanoseconds: UInt64(waitTime * 1_000_000_000))
                 attempt += 1
             }
