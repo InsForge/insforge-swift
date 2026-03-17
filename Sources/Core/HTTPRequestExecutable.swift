@@ -7,7 +7,7 @@ import Foundation
 /// Conforming types must expose an `HTTPClient` and an optional `TokenRefreshHandler`.
 /// The protocol extension provides a default `executeRequest` implementation that
 /// delegates to `executeWithAutoRefresh` when a handler is present, and `execute` otherwise.
-public protocol HTTPRequestExecutable {
+protocol HTTPRequestExecutable {
     var httpClient: HTTPClient { get }
     var tokenRefreshHandler: (any TokenRefreshHandler)? { get }
 }
