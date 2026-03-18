@@ -58,8 +58,8 @@ public struct RetryConfiguration: Sendable {
         useJitter: Bool = true
     ) {
         self.maxRetries = max(0, maxRetries)
-        self.baseDelay = baseDelay
-        self.maxDelay = maxDelay
+        self.baseDelay = max(0, baseDelay)
+        self.maxDelay = max(0, maxDelay)
         self.useJitter = useJitter
     }
 
