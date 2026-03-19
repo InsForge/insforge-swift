@@ -36,6 +36,16 @@ public enum HTTPMethod: String {
     case delete = "DELETE"
     /// HTTP HEAD method.
     case head = "HEAD"
+
+    /// Returns `true` for methods that are safe to retry automatically.
+    /// POST and PATCH are excluded because replaying them on a transient error
+    /// could duplicate a mutation (e.g. double-insert or double-charge).
+    var isIdempotent: Bool {
+        switch self {
+        case .get, .head, .put, .delete: return true
+        case .post, .patch: return false
+        }
+    }
 }
 
 // MARK: - Retry Configuration (re-exported for use inside Core)
@@ -279,9 +289,12 @@ public actor HTTPClient {
             logger.trace("Request body: \(bodyString)")
         }
 
-        return try await withRetry {
-            try await self.performRequest(request)
+        if method.isIdempotent {
+            return try await withRetry {
+                try await self.performRequest(request)
+            }
         }
+        return try await performRequest(request)
     }
 
     /// Uploads multipart form data with the specified HTTP method.
