@@ -19,12 +19,20 @@ public struct AuthOptions: Sendable {
 
     public init(
         autoRefreshToken: Bool = true,
-        storage: AuthStorage = UserDefaultsAuthStorage(),
+        storage: AuthStorage? = nil,
         clientType: ClientType = .mobile
     ) {
         self.autoRefreshToken = autoRefreshToken
-        self.storage = storage
+        self.storage = storage ?? Self.defaultStorage()
         self.clientType = clientType
+    }
+
+    private static func defaultStorage() -> AuthStorage {
+        #if canImport(Security) && (os(iOS) || os(macOS) || os(tvOS) || os(watchOS) || os(visionOS))
+        return KeychainAuthStorage()
+        #else
+        return UserDefaultsAuthStorage()
+        #endif
     }
 }
 

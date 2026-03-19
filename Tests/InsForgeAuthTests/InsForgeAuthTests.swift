@@ -71,6 +71,51 @@ final class InsForgeAuthTests: XCTestCase {
         XCTAssertEqual(cachedToken, "persisted-access")
     }
 
+    #if canImport(Security) && (os(iOS) || os(macOS) || os(tvOS) || os(watchOS) || os(visionOS))
+    func testKeychainAuthStoragePersistsSessionAndPKCEVerifier() async throws {
+        let service = "InsForgeAuthTests.\(UUID().uuidString)"
+        let storage = KeychainAuthStorage(service: service)
+        try? await storage.deleteSession()
+        try? await storage.deletePKCEVerifier()
+
+        let session = AuthTestSupport.makeSession(
+            accessToken: "keychain-access",
+            refreshToken: "keychain-refresh",
+            email: "keychain@example.com"
+        )
+
+        try await storage.saveSession(session)
+        try await storage.savePKCEVerifier("pkce-verifier")
+
+        let restoredSession = try await storage.getSession()
+        let restoredVerifier = try await storage.getPKCEVerifier()
+
+        XCTAssertEqual(restoredSession?.accessToken, "keychain-access")
+        XCTAssertEqual(restoredSession?.refreshToken, "keychain-refresh")
+        XCTAssertEqual(restoredSession?.user.email, "keychain@example.com")
+        XCTAssertEqual(restoredVerifier, "pkce-verifier")
+
+        try await storage.deleteSession()
+        try await storage.deletePKCEVerifier()
+
+        let deletedSession = try await storage.getSession()
+        let deletedVerifier = try await storage.getPKCEVerifier()
+
+        XCTAssertNil(deletedSession)
+        XCTAssertNil(deletedVerifier)
+    }
+
+    func testAuthOptionsUsesKeychainStorageByDefaultOnApplePlatforms() {
+        let options = AuthOptions()
+        XCTAssertTrue(options.storage is KeychainAuthStorage)
+    }
+    #else
+    func testAuthOptionsUsesUserDefaultsStorageByDefaultOnUnsupportedPlatforms() {
+        let options = AuthOptions()
+        XCTAssertTrue(options.storage is UserDefaultsAuthStorage)
+    }
+    #endif
+
     func testSignUpWithoutSessionWhenEmailVerificationIsRequired() async throws {
         let storage = InMemoryAuthStorage()
 
