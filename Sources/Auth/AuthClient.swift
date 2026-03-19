@@ -29,7 +29,10 @@ public struct AuthOptions: Sendable {
 
     private static func defaultStorage() -> AuthStorage {
         #if canImport(Security) && (os(iOS) || os(macOS) || os(tvOS) || os(watchOS) || os(visionOS))
-        return KeychainAuthStorage()
+        return MigratingAuthStorage(
+            primary: KeychainAuthStorage(),
+            legacy: UserDefaultsAuthStorage()
+        )
         #else
         return UserDefaultsAuthStorage()
         #endif

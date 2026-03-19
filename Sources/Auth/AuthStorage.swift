@@ -91,6 +91,98 @@ public enum KeychainAuthStorageError: Error, LocalizedError, Sendable {
     }
 }
 
+/// Storage wrapper that reads from a new primary store and falls back to a legacy store.
+///
+/// When a value is restored from the legacy store, it is copied into the primary store and the
+/// legacy copy is removed on a best-effort basis. This preserves existing sessions and PKCE
+/// verifiers across storage upgrades without widening migration logic into `AuthClient`.
+actor MigratingAuthStorage: AuthStorage {
+    private let primary: AuthStorage
+    private let legacy: AuthStorage
+
+    init(primary: AuthStorage, legacy: AuthStorage) {
+        self.primary = primary
+        self.legacy = legacy
+    }
+
+    func saveSession(_ session: Session) async throws {
+        try await primary.saveSession(session)
+        try? await legacy.deleteSession()
+    }
+
+    func getSession() async throws -> Session? {
+        if let session = try await primary.getSession() {
+            return session
+        }
+
+        guard let legacySession = try await legacy.getSession() else {
+            return nil
+        }
+
+        try? await primary.saveSession(legacySession)
+        try? await legacy.deleteSession()
+        return legacySession
+    }
+
+    func deleteSession() async throws {
+        try await deleteFromAllStores(
+            primaryDelete: { try await self.primary.deleteSession() },
+            legacyDelete: { try await self.legacy.deleteSession() }
+        )
+    }
+
+    func savePKCEVerifier(_ verifier: String) async throws {
+        try await primary.savePKCEVerifier(verifier)
+        try? await legacy.deletePKCEVerifier()
+    }
+
+    func getPKCEVerifier() async throws -> String? {
+        if let verifier = try await primary.getPKCEVerifier() {
+            return verifier
+        }
+
+        guard let legacyVerifier = try await legacy.getPKCEVerifier() else {
+            return nil
+        }
+
+        try? await primary.savePKCEVerifier(legacyVerifier)
+        try? await legacy.deletePKCEVerifier()
+        return legacyVerifier
+    }
+
+    func deletePKCEVerifier() async throws {
+        try await deleteFromAllStores(
+            primaryDelete: { try await self.primary.deletePKCEVerifier() },
+            legacyDelete: { try await self.legacy.deletePKCEVerifier() }
+        )
+    }
+
+    private func deleteFromAllStores(
+        primaryDelete: () async throws -> Void,
+        legacyDelete: () async throws -> Void
+    ) async throws {
+        var firstError: Error?
+
+        do {
+            try await primaryDelete()
+        } catch {
+            firstError = error
+        }
+
+        do {
+            try await legacyDelete()
+        } catch {
+            if firstError == nil {
+                firstError = error
+            }
+        }
+
+        if let firstError {
+            throw firstError
+        }
+    }
+}
+
 /// Keychain-based auth storage for Apple platforms.
 public actor KeychainAuthStorage: AuthStorage {
     private let sessionAccount = "insforge.auth.session"
