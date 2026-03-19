@@ -385,6 +385,9 @@ public actor AuthClient {
         }
         return session
     }
+}
+
+extension AuthClient {
 
     // MARK: - OAuth / Default Page Sign In
 
