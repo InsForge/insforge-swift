@@ -476,9 +476,10 @@ public actor AuthClient {
         try await storage.savePKCEVerifier(pkce.codeVerifier)
         logger.trace("Saved PKCE verifier to storage")
 
-        let sanitizedKey = providerKey
-            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? providerKey
-        let endpoint = url.appendingPathComponent("oauth/custom/\(sanitizedKey)")
+        let endpoint = url
+            .appendingPathComponent("oauth")
+            .appendingPathComponent("custom")
+            .appendingPathComponent(providerKey)
 
         var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
         components.queryItems = [
