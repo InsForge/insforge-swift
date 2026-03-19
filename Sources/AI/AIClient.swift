@@ -4,14 +4,19 @@ import Logging
 
 /// AI client for chat and image generation
 public actor AIClient {
-    private let url: URL
-    private let headersProvider: LockIsolated<[String: String]>
+    let url: URL
+    let headersProvider: LockIsolated<[String: String]>
     private let httpClient: HTTPClient
-    private let tokenRefreshHandler: (any TokenRefreshHandler)?
-    private var logger: Logging.Logger { InsForgeLoggerFactory.shared }
+    let tokenRefreshHandler: (any TokenRefreshHandler)?
+    var logger: Logging.Logger { InsForgeLoggerFactory.shared }
 
     /// Get current headers (dynamically fetched to reflect auth state changes)
     private var headers: [String: String] {
+        headersProvider.value
+    }
+
+    /// Headers exposed for use by extensions in other files (e.g. streaming)
+    var currentHeaders: [String: String] {
         headersProvider.value
     }
 
