@@ -292,31 +292,6 @@ public struct QueryBuilder: Sendable {
         return builder
     }
 
-    /// Helper to execute HTTP request with optional auto-refresh
-    private func executeRequest(
-        _ method: HTTPMethod,
-        url: URL,
-        headers: [String: String],
-        body: Data? = nil
-    ) async throws -> HTTPResponse {
-        if let handler = tokenRefreshHandler {
-            return try await httpClient.executeWithAutoRefresh(
-                method,
-                url: url,
-                headers: headers,
-                body: body,
-                refreshHandler: handler
-            )
-        } else {
-            return try await httpClient.execute(
-                method,
-                url: url,
-                headers: headers,
-                body: body
-            )
-        }
-    }
-
     /// Filters by equality.
     /// - Parameters:
     ///   - column: The column name to filter on.
@@ -569,7 +544,9 @@ public struct QueryBuilder: Sendable {
         let response = try await executeRequest(
             method,
             url: requestURL,
-            headers: requestHeaders
+            headers: requestHeaders,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -683,7 +660,9 @@ public struct QueryBuilder: Sendable {
             .post,
             url: requestURL,
             headers: requestHeaders,
-            body: data
+            body: data,
+            httpClient: builder.httpClient,
+            tokenRefreshHandler: builder.tokenRefreshHandler
         )
 
         let statusCode = response.response.statusCode
@@ -811,7 +790,9 @@ public struct QueryBuilder: Sendable {
             .patch,
             url: requestURL,
             headers: requestHeaders,
-            body: data
+            body: data,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -840,7 +821,9 @@ public struct QueryBuilder: Sendable {
         let response = try await executeRequest(
             .delete,
             url: requestURL,
-            headers: headers
+            headers: headers,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -897,31 +880,6 @@ public struct RPCBuilder: Sendable {
         self.tokenRefreshHandler = tokenRefreshHandler
     }
 
-    /// Helper to execute HTTP request with optional auto-refresh
-    private func executeRequest(
-        _ method: HTTPMethod,
-        url: URL,
-        headers: [String: String],
-        body: Data? = nil
-    ) async throws -> HTTPResponse {
-        if let handler = tokenRefreshHandler {
-            return try await httpClient.executeWithAutoRefresh(
-                method,
-                url: url,
-                headers: headers,
-                body: body,
-                refreshHandler: handler
-            )
-        } else {
-            return try await httpClient.execute(
-                method,
-                url: url,
-                headers: headers,
-                body: body
-            )
-        }
-    }
-
     // MARK: - Execute
 
     /// Executes the RPC call and returns decoded results as an array.
@@ -942,7 +900,9 @@ public struct RPCBuilder: Sendable {
             .post,
             url: url,
             headers: requestHeaders,
-            body: argsData
+            body: argsData,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -994,7 +954,9 @@ public struct RPCBuilder: Sendable {
             .post,
             url: url,
             headers: requestHeaders,
-            body: argsData
+            body: argsData,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response

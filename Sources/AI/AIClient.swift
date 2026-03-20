@@ -27,31 +27,6 @@ public actor AIClient {
         self.tokenRefreshHandler = tokenRefreshHandler
     }
 
-    /// Helper to execute HTTP request with optional auto-refresh
-    private func executeRequest(
-        _ method: HTTPMethod,
-        url: URL,
-        headers: [String: String],
-        body: Data? = nil
-    ) async throws -> HTTPResponse {
-        if let handler = tokenRefreshHandler {
-            return try await httpClient.executeWithAutoRefresh(
-                method,
-                url: url,
-                headers: headers,
-                body: body,
-                refreshHandler: handler
-            )
-        } else {
-            return try await httpClient.execute(
-                method,
-                url: url,
-                headers: headers,
-                body: body
-            )
-        }
-    }
-
     // MARK: - Chat Completion
 
     /// Generate chat completion
@@ -137,7 +112,9 @@ public actor AIClient {
             .post,
             url: endpoint,
             headers: requestHeaders,
-            body: data
+            body: data,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -186,7 +163,9 @@ public actor AIClient {
             .post,
             url: endpoint,
             headers: requestHeaders,
-            body: data
+            body: data,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -246,7 +225,9 @@ public actor AIClient {
             .post,
             url: endpoint,
             headers: requestHeaders,
-            body: data
+            body: data,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -274,7 +255,9 @@ public actor AIClient {
         let response = try await executeRequest(
             .get,
             url: endpoint,
-            headers: headers
+            headers: headers,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response

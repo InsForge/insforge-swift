@@ -126,31 +126,6 @@ public actor StorageClient {
         self.tokenRefreshHandler = tokenRefreshHandler
     }
 
-    /// Helper to execute HTTP request with optional auto-refresh
-    private func executeRequest(
-        _ method: HTTPMethod,
-        url: URL,
-        headers: [String: String],
-        body: Data? = nil
-    ) async throws -> HTTPResponse {
-        if let handler = tokenRefreshHandler {
-            return try await httpClient.executeWithAutoRefresh(
-                method,
-                url: url,
-                headers: headers,
-                body: body,
-                refreshHandler: handler
-            )
-        } else {
-            return try await httpClient.execute(
-                method,
-                url: url,
-                headers: headers,
-                body: body
-            )
-        }
-    }
-
     /// Get a file API reference for a bucket
     /// - Parameter id: The bucket id to operate on
     /// - Returns: StorageFileApi object for file operations
@@ -185,7 +160,9 @@ public actor StorageClient {
         let response = try await executeRequest(
             .get,
             url: endpoint,
-            headers: headers
+            headers: headers,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -213,7 +190,9 @@ public actor StorageClient {
         let response = try await executeRequest(
             .get,
             url: endpoint,
-            headers: headers
+            headers: headers,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -254,7 +233,9 @@ public actor StorageClient {
             .post,
             url: endpoint,
             headers: requestHeaders,
-            body: data
+            body: data,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -292,7 +273,9 @@ public actor StorageClient {
             .patch,
             url: endpoint,
             headers: requestHeaders,
-            body: data
+            body: data,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -317,7 +300,9 @@ public actor StorageClient {
         let response = try await executeRequest(
             .delete,
             url: endpoint,
-            headers: headers
+            headers: headers,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -359,31 +344,6 @@ public struct StorageFileApi: Sendable {
         self.headersProvider = headersProvider
         self.httpClient = httpClient
         self.tokenRefreshHandler = tokenRefreshHandler
-    }
-
-    /// Helper to execute HTTP request with optional auto-refresh
-    private func executeRequest(
-        _ method: HTTPMethod,
-        url: URL,
-        headers: [String: String],
-        body: Data? = nil
-    ) async throws -> HTTPResponse {
-        if let handler = tokenRefreshHandler {
-            return try await httpClient.executeWithAutoRefresh(
-                method,
-                url: url,
-                headers: headers,
-                body: body,
-                refreshHandler: handler
-            )
-        } else {
-            return try await httpClient.execute(
-                method,
-                url: url,
-                headers: headers,
-                body: body
-            )
-        }
     }
 
     // MARK: - Upload
@@ -635,7 +595,9 @@ public struct StorageFileApi: Sendable {
         let response = try await executeRequest(
             .get,
             url: requestURL,
-            headers: headers
+            headers: headers,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -682,7 +644,9 @@ public struct StorageFileApi: Sendable {
         let response = try await executeRequest(
             .delete,
             url: endpoint,
-            headers: headers
+            headers: headers,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -748,7 +712,9 @@ public struct StorageFileApi: Sendable {
             .post,
             url: endpoint,
             headers: requestHeaders,
-            body: data
+            body: data,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -808,7 +774,9 @@ public struct StorageFileApi: Sendable {
             .post,
             url: endpoint,
             headers: requestHeaders,
-            body: data
+            body: data,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
@@ -856,7 +824,9 @@ public struct StorageFileApi: Sendable {
             .post,
             url: endpoint,
             headers: requestHeaders,
-            body: data
+            body: data,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
         )
 
         // Log response
