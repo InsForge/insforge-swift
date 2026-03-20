@@ -1007,7 +1007,10 @@ public struct StorageFileApi: Sendable {
     }
 
     /// Sends a single chunk to the upload URL with a `Content-Range` header.
-    /// Retries once with a refreshed token on 401, matching the behaviour of all other methods.
+    ///
+    /// Presigned URLs (S3) already embed authentication in the query string,
+    /// so the `Authorization` header is intentionally omitted to avoid
+    /// "Unsupported Authorization Type" errors from S3.
     private func uploadChunk(
         url: URL,
         chunk: Data,
@@ -1016,46 +1019,21 @@ public struct StorageFileApi: Sendable {
         rangeEnd: Int,
         totalSize: Int
     ) async throws {
-        func buildRequest(currentHeaders: [String: String]) -> URLRequest {
-            var request = URLRequest(url: url)
-            request.httpMethod = "PUT"
-            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-            request.setValue(
-                "bytes \(rangeStart)-\(rangeEnd)/\(totalSize)",
-                forHTTPHeaderField: "Content-Range"
-            )
-            for (key, value) in currentHeaders {
-                request.setValue(value, forHTTPHeaderField: key)
-            }
-            request.httpBody = chunk
-            return request
-        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue(
+            "bytes \(rangeStart)-\(rangeEnd)/\(totalSize)",
+            forHTTPHeaderField: "Content-Range"
+        )
+        request.httpBody = chunk
 
         logger.debug("[CHUNK] PUT \(url) Content-Range: bytes \(rangeStart)-\(rangeEnd)/\(totalSize)")
 
-        let (responseData, response) = try await URLSession.shared.data(for: buildRequest(currentHeaders: headers))
+        let (responseData, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw InsForgeError.invalidResponse
-        }
-
-        // On 401, refresh the token and retry once — same pattern as executeWithAutoRefresh
-        if httpResponse.statusCode == 401, let refreshHandler = tokenRefreshHandler {
-            logger.debug("Received 401 on chunk upload, attempting token refresh...")
-            let newToken = try await refreshHandler.refreshToken()
-            var refreshedHeaders = headers
-            refreshedHeaders["Authorization"] = "Bearer \(newToken)"
-
-            let (retryData, retryResponse) = try await URLSession.shared.data(for: buildRequest(currentHeaders: refreshedHeaders))
-            guard let retryHTTP = retryResponse as? HTTPURLResponse else {
-                throw InsForgeError.invalidResponse
-            }
-            let retrySuccess = (200..<300).contains(retryHTTP.statusCode) || retryHTTP.statusCode == 308
-            if !retrySuccess {
-                let message = String(data: retryData, encoding: .utf8) ?? "Chunk upload failed after token refresh"
-                throw InsForgeError.httpError(statusCode: retryHTTP.statusCode, message: message, error: nil, nextActions: nil)
-            }
-            return
         }
 
         // 200 OK, 206 Partial Content, and 308 Resume Incomplete are all valid chunk responses
