@@ -276,6 +276,7 @@ extension AIClient {
     ///
     /// Extracted from `chatCompletionStream` to satisfy SwiftLint's
     /// `function_body_length` limit on the public API surface.
+    @available(iOS 15.0, macOS 12.0, tvOS 15.0, watchOS 8.0, visionOS 1.0, *)
     private func performStreamTask(
         endpoint: URL,
         bodyData: Data,
