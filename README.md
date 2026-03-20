@@ -261,14 +261,28 @@ let client = InsForgeClient(
             decoder: customJSONDecoder
         ),
         auth: .init(
-            autoRefreshToken: true,
-            storage: UserDefaultsAuthStorage(),
-            flowType: .pkce
+            autoRefreshToken: true
         ),
         global: .init(
             headers: ["Custom-Header": "value"],
             session: .shared,
-            logger: ConsoleLogger()
+            logLevel: .debug
+        )
+    )
+)
+```
+
+Authentication storage defaults to `UserDefaultsAuthStorage()`. If you want to persist auth state in Keychain instead, opt in explicitly:
+
+```swift
+let client = InsForgeClient(
+    baseURL: URL(string: "https://your-project.insforge.com")!,
+    anonKey: "your-anon-key",
+    options: InsForgeClientOptions(
+        auth: .init(
+            storage: KeychainAuthStorage(
+                service: "com.yourapp.auth"
+            )
         )
     )
 )
