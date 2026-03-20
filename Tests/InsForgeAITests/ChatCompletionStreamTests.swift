@@ -630,9 +630,8 @@ final class ChatCompletionStreamTests: XCTestCase {
 
         let (chunks, _) = parseSSELines(sseLines)
 
-        if chunks.count == 1 {
-            XCTAssertEqual(chunks[0].text, "Hi")
-        }
+        XCTAssertEqual(chunks.count, 1, "Multi-line SSE event should produce exactly one chunk")
+        XCTAssertEqual(chunks[0].text, "Hi")
     }
 
     // MARK: - Truncated Stream Detection Tests
