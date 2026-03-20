@@ -31,6 +31,26 @@ public struct BucketOptions: Sendable {
     }
 }
 
+/// Options for chunked upload of large files
+public struct ChunkedUploadOptions: Sendable {
+    /// Size of each chunk in bytes. Defaults to 5 MB.
+    public var chunkSize: Int
+
+    /// Standard file options (content type, custom headers).
+    public var fileOptions: FileOptions
+
+    /// Default chunk size: 5 MB.
+    public static let defaultChunkSize: Int = 5 * 1024 * 1024
+
+    public init(
+        chunkSize: Int = defaultChunkSize,
+        fileOptions: FileOptions = FileOptions()
+    ) {
+        self.chunkSize = max(1, chunkSize)
+        self.fileOptions = fileOptions
+    }
+}
+
 /// Options for listing files
 public struct ListOptions: Sendable {
     /// Filter objects by key prefix
@@ -839,6 +859,216 @@ public struct StorageFileApi: Sendable {
         let strategy = try response.decode(DownloadStrategy.self)
         logger.debug("Got download strategy: \(strategy.method) for '\(path)'")
         return strategy
+    }
+
+    // MARK: - Chunked Upload
+
+    /// Uploads large data in sequential chunks using `Content-Range` headers.
+    ///
+    /// Use this instead of `upload(path:data:options:)` when the payload is large
+    /// (e.g. > 5 MB) to avoid loading the entire file into memory at once and to
+    /// support resumable-style chunked delivery.
+    ///
+    /// - Parameters:
+    ///   - path: The object key (can include forward slashes for pseudo-folders).
+    ///   - data: The file data to upload.
+    ///   - options: Chunked upload options (chunk size, content type, etc.).
+    /// - Returns: `StoredFile` with upload details.
+    @discardableResult
+    public func uploadChunked(
+        path: String,
+        data: Data,
+        options: ChunkedUploadOptions = ChunkedUploadOptions()
+    ) async throws -> StoredFile {
+        let contentType = options.fileOptions.contentType ?? inferContentType(from: path)
+        let totalSize = data.count
+        let chunkSize = options.chunkSize
+
+        let strategy = try await getUploadStrategy(
+            filename: path,
+            contentType: contentType,
+            size: totalSize
+        )
+
+        guard let uploadURL = URL(string: strategy.uploadUrl) else {
+            throw InsForgeError.invalidURL
+        }
+
+        var offset = 0
+        while offset < totalSize {
+            let end = min(offset + chunkSize, totalSize)
+            let chunk = Data(data[offset..<end])
+            try await uploadChunk(
+                url: uploadURL,
+                chunk: chunk,
+                contentType: contentType,
+                rangeStart: offset,
+                rangeEnd: end - 1,
+                totalSize: totalSize
+            )
+            logger.debug("Uploaded chunk bytes \(offset)-\(end - 1)/\(totalSize) for '\(path)'")
+            offset = end
+        }
+
+        if strategy.confirmRequired {
+            let stored = try await confirmUpload(
+                path: strategy.key,
+                size: totalSize,
+                contentType: contentType
+            )
+            logger.debug("Chunked upload confirmed for '\(path)'")
+            return stored
+        }
+
+        let files = try await list(options: ListOptions(prefix: strategy.key, limit: 1))
+        guard let storedFile = files.first else {
+            throw InsForgeError.httpError(statusCode: 404, message: "Uploaded file not found", error: nil, nextActions: nil)
+        }
+        logger.debug("Chunked file uploaded to '\(path)'")
+        return storedFile
+    }
+
+    /// Memory-efficient chunked upload that reads from a local file URL chunk by chunk.
+    ///
+    /// Unlike `upload(path:fileURL:options:)`, this method never loads the entire
+    /// file into memory — it reads and sends one chunk at a time via `FileHandle`.
+    ///
+    /// - Parameters:
+    ///   - path: The object key.
+    ///   - fileURL: Local URL of the file to upload.
+    ///   - options: Chunked upload options (chunk size, content type, etc.).
+    /// - Returns: `StoredFile` with upload details.
+    @discardableResult
+    public func uploadChunked(
+        path: String,
+        fileURL: URL,
+        options: ChunkedUploadOptions = ChunkedUploadOptions()
+    ) async throws -> StoredFile {
+        guard let fileHandle = FileHandle(forReadingAtPath: fileURL.path) else {
+            throw InsForgeError.httpError(
+                statusCode: 0,
+                message: "Cannot open file at \(fileURL.path)",
+                error: nil,
+                nextActions: nil
+            )
+        }
+        defer { fileHandle.closeFile() }
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let totalSize = (attributes[.size] as? Int) ?? 0
+        let contentType = options.fileOptions.contentType ?? inferContentType(from: path)
+        let chunkSize = options.chunkSize
+
+        let strategy = try await getUploadStrategy(
+            filename: path,
+            contentType: contentType,
+            size: totalSize
+        )
+
+        guard let uploadURL = URL(string: strategy.uploadUrl) else {
+            throw InsForgeError.invalidURL
+        }
+
+        var offset = 0
+        while offset < totalSize {
+            fileHandle.seek(toFileOffset: UInt64(offset))
+            let chunk = fileHandle.readData(ofLength: min(chunkSize, totalSize - offset))
+            guard !chunk.isEmpty else { break }
+
+            let rangeEnd = offset + chunk.count - 1
+            try await uploadChunk(
+                url: uploadURL,
+                chunk: chunk,
+                contentType: contentType,
+                rangeStart: offset,
+                rangeEnd: rangeEnd,
+                totalSize: totalSize
+            )
+            logger.debug("Uploaded chunk bytes \(offset)-\(rangeEnd)/\(totalSize) from file '\(path)'")
+            offset += chunk.count
+        }
+
+        if strategy.confirmRequired {
+            let stored = try await confirmUpload(
+                path: strategy.key,
+                size: totalSize,
+                contentType: contentType
+            )
+            logger.debug("Chunked file upload confirmed for '\(path)'")
+            return stored
+        }
+
+        let files = try await list(options: ListOptions(prefix: strategy.key, limit: 1))
+        guard let storedFile = files.first else {
+            throw InsForgeError.httpError(statusCode: 404, message: "Uploaded file not found", error: nil, nextActions: nil)
+        }
+        logger.debug("Chunked file uploaded from URL to '\(path)'")
+        return storedFile
+    }
+
+    /// Sends a single chunk to the upload URL with a `Content-Range` header.
+    /// Retries once with a refreshed token on 401, matching the behaviour of all other methods.
+    private func uploadChunk(
+        url: URL,
+        chunk: Data,
+        contentType: String,
+        rangeStart: Int,
+        rangeEnd: Int,
+        totalSize: Int
+    ) async throws {
+        func buildRequest(currentHeaders: [String: String]) -> URLRequest {
+            var request = URLRequest(url: url)
+            request.httpMethod = "PUT"
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+            request.setValue(
+                "bytes \(rangeStart)-\(rangeEnd)/\(totalSize)",
+                forHTTPHeaderField: "Content-Range"
+            )
+            for (key, value) in currentHeaders {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+            request.httpBody = chunk
+            return request
+        }
+
+        logger.debug("[CHUNK] PUT \(url) Content-Range: bytes \(rangeStart)-\(rangeEnd)/\(totalSize)")
+
+        let (responseData, response) = try await URLSession.shared.data(for: buildRequest(currentHeaders: headers))
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw InsForgeError.invalidResponse
+        }
+
+        // On 401, refresh the token and retry once — same pattern as executeWithAutoRefresh
+        if httpResponse.statusCode == 401, let refreshHandler = tokenRefreshHandler {
+            logger.debug("Received 401 on chunk upload, attempting token refresh...")
+            let newToken = try await refreshHandler.refreshToken()
+            var refreshedHeaders = headers
+            refreshedHeaders["Authorization"] = "Bearer \(newToken)"
+
+            let (retryData, retryResponse) = try await URLSession.shared.data(for: buildRequest(currentHeaders: refreshedHeaders))
+            guard let retryHTTP = retryResponse as? HTTPURLResponse else {
+                throw InsForgeError.invalidResponse
+            }
+            let retrySuccess = (200..<300).contains(retryHTTP.statusCode) || retryHTTP.statusCode == 308
+            if !retrySuccess {
+                let message = String(data: retryData, encoding: .utf8) ?? "Chunk upload failed after token refresh"
+                throw InsForgeError.httpError(statusCode: retryHTTP.statusCode, message: message, error: nil, nextActions: nil)
+            }
+            return
+        }
+
+        // 200 OK, 206 Partial Content, and 308 Resume Incomplete are all valid chunk responses
+        let isSuccess = (200..<300).contains(httpResponse.statusCode) || httpResponse.statusCode == 308
+        if !isSuccess {
+            let message = String(data: responseData, encoding: .utf8) ?? "Chunk upload failed"
+            throw InsForgeError.httpError(
+                statusCode: httpResponse.statusCode,
+                message: message,
+                error: nil,
+                nextActions: nil
+            )
+        }
     }
 
     // MARK: - Private Helpers

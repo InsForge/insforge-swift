@@ -598,6 +598,90 @@ final class InsForgeStorageTests: XCTestCase {
         print("✅ Successfully deleted bucket: \(tempBucket)")
     }
 
+    // MARK: - Chunked Upload Tests
+
+    func testChunkedUploadOptionsDefaults() {
+        let options = ChunkedUploadOptions()
+        XCTAssertEqual(options.chunkSize, ChunkedUploadOptions.defaultChunkSize)
+        XCTAssertEqual(options.chunkSize, 5 * 1024 * 1024)
+        XCTAssertNil(options.fileOptions.contentType)
+    }
+
+    func testChunkedUploadOptionsCustom() {
+        let options = ChunkedUploadOptions(
+            chunkSize: 1024 * 1024,
+            fileOptions: FileOptions(contentType: "text/plain")
+        )
+        XCTAssertEqual(options.chunkSize, 1024 * 1024)
+        XCTAssertEqual(options.fileOptions.contentType, "text/plain")
+    }
+
+    func testChunkedUploadOptionsClampedChunkSize() {
+        let options = ChunkedUploadOptions(chunkSize: 0)
+        XCTAssertEqual(options.chunkSize, 1, "chunkSize must be at least 1 byte")
+    }
+
+    /// Test uploading data via chunked upload with a small chunk size to force multiple chunks
+    func testChunkedUploadData() async throws {
+        print("🔵 Testing chunked upload (data)...")
+
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
+
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+        let testContent = String(repeating: "A", count: 1024).data(using: .utf8)!
+        let filePath = "chunked-data-\(UUID().uuidString).txt"
+
+        let uploaded = try await fileApi.uploadChunked(
+            path: filePath,
+            data: testContent,
+            options: ChunkedUploadOptions(
+                chunkSize: 256,
+                fileOptions: FileOptions(contentType: "text/plain")
+            )
+        )
+
+        XCTAssertFalse(uploaded.key.isEmpty)
+        XCTAssertEqual(uploaded.bucket, testBucketName)
+        print("✅ Chunked data upload: \(uploaded.key)")
+    }
+
+    /// Test memory-efficient chunked upload from a local file URL
+    func testChunkedUploadFromFileURL() async throws {
+        print("🔵 Testing chunked upload (fileURL)...")
+
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
+
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFile = tempDir.appendingPathComponent("chunk-url-\(UUID().uuidString).txt")
+        let content = String(repeating: "B", count: 2048)
+        try content.write(to: tempFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let filePath = "chunked-url-\(UUID().uuidString).txt"
+        let uploaded = try await fileApi.uploadChunked(
+            path: filePath,
+            fileURL: tempFile,
+            options: ChunkedUploadOptions(
+                chunkSize: 512,
+                fileOptions: FileOptions(contentType: "text/plain")
+            )
+        )
+
+        XCTAssertFalse(uploaded.key.isEmpty)
+        XCTAssertEqual(uploaded.bucket, testBucketName)
+        print("✅ Chunked file URL upload: \(uploaded.key)")
+    }
+
     /// Test complete workflow: create bucket -> upload -> list -> download -> delete file -> delete bucket
     func testCompleteWorkflow() async throws {
         print("🔵 Testing complete storage workflow...")
