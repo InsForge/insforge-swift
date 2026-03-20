@@ -742,6 +742,86 @@ final class InsForgeAITests: XCTestCase {
         }
     }
 
+    // MARK: - Streaming Tests
+
+    /// Test streaming chat completion via SSE
+    @available(iOS 15.0, macOS 12.0, tvOS 15.0, watchOS 8.0, visionOS 1.0, *)
+    func testChatCompletionStream() async throws {
+        print("🔵 Testing chatCompletionStream...")
+
+        let modelsResponse = try await insForgeClient.ai.listModels()
+
+        guard let configuredProvider = modelsResponse.text.first(where: { $0.configured }),
+              let firstModel = configuredProvider.models.first else {
+            throw XCTSkip("No configured text AI models available")
+        }
+
+        print("   Using model: \(firstModel.name) (\(firstModel.id))")
+
+        let messages = [
+            ChatMessage(role: .user, content: "Count from 1 to 5, one number per line.")
+        ]
+
+        let stream = await insForgeClient.ai.chatCompletionStream(
+            model: firstModel.id,
+            messages: messages,
+            maxTokens: 100
+        )
+
+        var fullText = ""
+        var chunkCount = 0
+
+        for try await chunk in stream {
+            fullText += chunk.text
+            chunkCount += 1
+            if chunk.isFinished { break }
+        }
+
+        XCTAssertFalse(fullText.isEmpty, "Stream should produce non-empty text")
+        XCTAssertGreaterThan(chunkCount, 1, "Stream should yield multiple chunks")
+
+        print("✅ Streaming chat completion successful")
+        print("   Received \(chunkCount) chunks")
+        print("   Full response: \(fullText)")
+        print("   First model reported: \(firstModel.id)")
+    }
+
+    /// Test that streaming with system prompt and temperature works
+    @available(iOS 15.0, macOS 12.0, tvOS 15.0, watchOS 8.0, visionOS 1.0, *)
+    func testChatCompletionStreamWithParameters() async throws {
+        print("🔵 Testing chatCompletionStream with parameters...")
+
+        let modelsResponse = try await insForgeClient.ai.listModels()
+
+        guard let configuredProvider = modelsResponse.text.first(where: { $0.configured }),
+              let firstModel = configuredProvider.models.first else {
+            throw XCTSkip("No configured text AI models available")
+        }
+
+        let messages = [
+            ChatMessage(role: .user, content: "Say hello in one word.")
+        ]
+
+        let stream = await insForgeClient.ai.chatCompletionStream(
+            model: firstModel.id,
+            messages: messages,
+            temperature: 0.5,
+            maxTokens: 20,
+            systemPrompt: "You are a concise assistant."
+        )
+
+        var fullText = ""
+        for try await chunk in stream {
+            fullText += chunk.text
+            if chunk.isFinished { break }
+        }
+
+        XCTAssertFalse(fullText.isEmpty, "Stream with parameters should produce non-empty text")
+
+        print("✅ Streaming with parameters successful")
+        print("   Response: \(fullText)")
+    }
+
     // MARK: - Workflow Tests
 
     /// Test complete AI workflow
