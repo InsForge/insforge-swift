@@ -443,6 +443,12 @@ public final class RealtimeClient: @unchecked Sendable {
 
     // MARK: - Connection
 
+    private struct ConnectInvocation {
+        let task: Task<Void, Error>
+        let token: UUID
+        let isOwner: Bool
+    }
+
     /// Connect to the realtime server
     public func connect() async throws {
         try await connect(resetRetryBudget: true)
@@ -457,12 +463,12 @@ public final class RealtimeClient: @unchecked Sendable {
 
         cancelReconnectTask()
 
-        let invocation = reconnectCoordinator.withValue { coordinator -> (task: Task<Void, Error>, token: UUID, isOwner: Bool) in
+        let invocation = reconnectCoordinator.withValue { coordinator -> ConnectInvocation in
             coordinator.runtime.prepareForConnectionRequest(resetRetryAttempt: resetRetryBudget)
 
             if let existingTask = coordinator.connectTask,
                let existingToken = coordinator.connectTaskToken {
-                return (existingTask, existingToken, false)
+                return ConnectInvocation(task: existingTask, token: existingToken, isOwner: false)
             }
 
             let token = UUID()
@@ -473,7 +479,7 @@ public final class RealtimeClient: @unchecked Sendable {
 
             coordinator.connectTask = task
             coordinator.connectTaskToken = token
-            return (task, token, true)
+            return ConnectInvocation(task: task, token: token, isOwner: true)
         }
 
         do {

@@ -8,8 +8,8 @@ private final class MockURLProtocol: URLProtocol {
     /// Set this before each test to control what response the mock returns.
     static var responseHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         guard let handler = MockURLProtocol.responseHandler else {
@@ -49,7 +49,7 @@ private func makeResponse(statusCode: Int, headers: [String: String] = [:]) -> H
 private func emptyData() -> Data { Data() }
 
 private func errorJSON(_ message: String = "error") -> Data {
-    try! JSONEncoder().encode(["message": message, "error": "test_error"])
+    (try? JSONEncoder().encode(["message": message, "error": "test_error"])) ?? Data()
 }
 
 // MARK: - NetworkError Tests
