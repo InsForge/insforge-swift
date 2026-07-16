@@ -319,9 +319,14 @@ Only maintainers can release new versions:
 1. Update `CHANGELOG.md`
 2. Update version number in `Sources/InsForge/InsForgeClient.swift`
 3. Create PR and merge
-4. Create tag: `git tag -a 1.0.1 -m "Release 1.0.1"`
-5. Push tag: `git push origin 1.0.1`
-6. Create Release on GitHub
+4. Create a tag without a `v` prefix: `git tag -a <version> -m "Release <version>"`
+5. Push the tag: `git push origin <version>`
+
+The tag immediately makes the version available to Swift Package Manager. The
+release workflow validates that the tag matches the SDK version and creates a
+GitHub Release only for stable tags. Prerelease tags such as `0.1.0-beta.1` are
+validated and remain available to Swift Package Manager without creating a
+GitHub Release.
 
 ## Getting Help
 
