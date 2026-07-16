@@ -16,7 +16,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Check if version argument is provided
-if [ -z "$1" ]; then
+if [ -z "${1:-}" ]; then
     echo -e "${RED}Error: Version number required${NC}"
     echo "Usage: $0 <version> [--dry-run]"
     echo "Example: $0 1.0.1"
@@ -34,6 +34,12 @@ fi
 # Validate stable or prerelease SemVer (without a v prefix)
 if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
     echo -e "${RED}Error: Invalid version format. Use semver without a v prefix (e.g., 1.0.1 or 1.1.0-beta.1)${NC}"
+    exit 1
+fi
+
+# This script pauses for the maintainer to update CHANGELOG.md.
+if [ ! -t 0 ]; then
+    echo -e "${RED}Error: This release script requires an interactive terminal${NC}"
     exit 1
 fi
 
@@ -84,7 +90,7 @@ fi
 # Update CHANGELOG.md
 echo -e "${GREEN}Please update CHANGELOG.md with release notes${NC}"
 echo "Press enter when done..."
-read
+read -r
 
 if [ "$DRY_RUN" = false ]; then
     git add CHANGELOG.md
