@@ -7,7 +7,7 @@
 #   ./scripts/release.sh 1.0.1
 #   ./scripts/release.sh 1.1.0 --dry-run
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -26,14 +26,14 @@ fi
 VERSION=$1
 DRY_RUN=false
 
-if [ "$2" == "--dry-run" ]; then
+if [ "${2:-}" == "--dry-run" ]; then
     DRY_RUN=true
     echo -e "${YELLOW}Running in DRY RUN mode - no changes will be made${NC}"
 fi
 
-# Validate version format (semver)
-if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo -e "${RED}Error: Invalid version format. Use semver (e.g., 1.0.1)${NC}"
+# Validate stable or prerelease SemVer (without a v prefix)
+if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+    echo -e "${RED}Error: Invalid version format. Use semver without a v prefix (e.g., 1.0.1 or 1.1.0-beta.1)${NC}"
     exit 1
 fi
 
@@ -63,7 +63,7 @@ fi
 
 # Run tests
 echo -e "${GREEN}Running tests...${NC}"
-swift test
+./scripts/test-unit.sh
 
 # Run SwiftLint
 echo -e "${GREEN}Running SwiftLint...${NC}"
@@ -114,48 +114,12 @@ else
     echo "Would push: git push origin $VERSION"
 fi
 
-# Create GitHub release
-echo -e "${GREEN}Creating GitHub release...${NC}"
-if command -v gh &> /dev/null; then
-    if [ "$DRY_RUN" = false ]; then
-        # Extract release notes from CHANGELOG
-        RELEASE_NOTES=$(awk "/## \[$VERSION\]/,/## \[.*\]/{if (/## \[$VERSION\]/) next; if (/## \[.*\]/) exit; print}" CHANGELOG.md)
-
-        gh release create "$VERSION" \
-            --title "v$VERSION" \
-            --notes "$RELEASE_NOTES"
-    else
-        echo "Would create GitHub release for version $VERSION"
-    fi
-else
-    echo -e "${YELLOW}Warning: GitHub CLI (gh) not installed${NC}"
-    echo "Please create the release manually at:"
-    echo "https://github.com/YOUR_ORG/insforge-swift/releases/new?tag=$VERSION"
-fi
-
-# Optional: Publish to CocoaPods
-echo -e "${GREEN}Do you want to publish to CocoaPods? (y/n)${NC}"
-read -r PUBLISH_COCOAPODS
-
-if [ "$PUBLISH_COCOAPODS" = "y" ]; then
-    if command -v pod &> /dev/null; then
-        echo -e "${GREEN}Publishing to CocoaPods...${NC}"
-        if [ "$DRY_RUN" = false ]; then
-            pod trunk push InsForge.podspec --allow-warnings
-        else
-            echo "Would run: pod trunk push InsForge.podspec --allow-warnings"
-        fi
-    else
-        echo -e "${YELLOW}Warning: CocoaPods not installed${NC}"
-    fi
-fi
-
 echo -e "${GREEN}✅ Release process completed successfully!${NC}"
 echo ""
 echo "Next steps:"
-echo "1. Verify the release on GitHub"
+echo "1. Verify the release workflow on GitHub Actions"
 echo "2. Update documentation site"
 echo "3. Announce the release on social media"
 echo "4. Monitor for any issues"
 echo ""
-echo "Release URL: https://github.com/YOUR_ORG/insforge-swift/releases/tag/$VERSION"
+echo "Tag URL: https://github.com/InsForge/insforge-swift/tree/$VERSION"
