@@ -18,6 +18,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Swift
         uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
@@ -46,6 +48,14 @@ jobs:
           if [[ "$sdk_version" != "$RELEASE_TAG" ]]; then
             echo "Tag $RELEASE_TAG does not match SDK version $sdk_version" >&2
             exit 1
+          fi
+
+          if [[ "$RELEASE_TAG" != *-* ]]; then
+            release_commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+            if ! git merge-base --is-ancestor "$release_commit" origin/main; then
+              echo "Stable release $RELEASE_TAG must point to a commit contained in main." >&2
+              exit 1
+            fi
           fi
 
       - name: Build
