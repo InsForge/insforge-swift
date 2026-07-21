@@ -120,6 +120,7 @@ try await client.database
 try await client.storage.createBucket("avatars", options: BucketOptions(isPublic: true))
 
 // Upload a file with specific path
+// (replaces the existing object when the path is already in use)
 let imageData = // ... your image data
 let file = try await client.storage
     .from("avatars")
@@ -129,7 +130,8 @@ let file = try await client.storage
         options: FileOptions(contentType: "image/jpeg")
     )
 
-// Upload with auto-generated key
+// Upload with auto-generated, collision-free key
+// (derived client-side from the filename, so repeated uploads never overwrite)
 let autoFile = try await client.storage
     .from("avatars")
     .upload(
