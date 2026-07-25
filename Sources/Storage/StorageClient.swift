@@ -366,9 +366,48 @@ public struct StorageFileApi: Sendable {
         self.tokenRefreshHandler = tokenRefreshHandler
     }
 
+    // MARK: - Object Key Generation
+
+    /// Generate a unique object key from a filename: `<sanitized-base>-<timestamp>-<random><ext>`.
+    /// Auto-key generation is a client-side convenience — the storage API has no
+    /// server-side key minting — so `upload(data:fileName:options:)` produces the
+    /// key here and then uploads through the standard `upload(path:data:options:)` path.
+    static func generateObjectKey(from filename: String) -> String {
+        let ext: String
+        let base: String
+        if let dotIndex = filename.lastIndex(of: "."), dotIndex != filename.startIndex {
+            ext = String(filename[dotIndex...])
+            base = String(filename[..<dotIndex])
+        } else {
+            ext = ""
+            base = filename
+        }
+
+        let sanitized = String(
+            base.map { char -> Character in
+                let isAllowed = ("a"..."z").contains(char)
+                    || ("A"..."Z").contains(char)
+                    || ("0"..."9").contains(char)
+                    || char == "-"
+                    || char == "_"
+                return isAllowed ? char : "-"
+            }.prefix(32)
+        )
+        let sanitizedBase = sanitized.isEmpty ? "file" : sanitized
+
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        let alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        let random = String((0..<6).compactMap { _ in alphabet.randomElement() })
+
+        return "\(sanitizedBase)-\(timestamp)-\(random)\(ext)"
+    }
+
     // MARK: - Upload
 
     /// Uploads a file to the bucket with a specific key using presigned URL flow.
+    ///
+    /// Standard PUT semantics: uploading to a key that already exists replaces
+    /// the current object in place.
     /// - Parameters:
     ///   - path: The object key (can include forward slashes for pseudo-folders).
     ///   - data: The file data to upload.
@@ -413,6 +452,9 @@ public struct StorageFileApi: Sendable {
     }
 
     /// Uploads a file from a local file URL.
+    ///
+    /// Standard PUT semantics: uploading to a key that already exists replaces
+    /// the current object in place.
     /// - Parameters:
     ///   - path: The object key.
     ///   - fileURL: The local file URL to upload.
@@ -428,7 +470,12 @@ public struct StorageFileApi: Sendable {
         return try await upload(path: path, data: data, options: options)
     }
 
-    /// Uploads a file with auto-generated key using presigned URL flow.
+    /// Uploads a file under an automatically generated, collision-free key.
+    ///
+    /// The key is derived client-side from the filename (sanitized base +
+    /// timestamp + random suffix) and uploaded through the standard
+    /// `upload(path:data:options:)` path, so repeated uploads of the same file
+    /// never overwrite each other.
     /// - Parameters:
     ///   - data: The file data to upload.
     ///   - fileName: Original filename for generating the key.
@@ -440,36 +487,11 @@ public struct StorageFileApi: Sendable {
         fileName: String,
         options: FileOptions = FileOptions()
     ) async throws -> StoredFile {
-        let contentType = options.contentType ?? inferContentType(from: fileName)
-
-        // 1. Get upload strategy (auto-generates key)
-        let strategy = try await getUploadStrategy(
-            filename: fileName,
-            contentType: contentType,
-            size: data.count
+        try await upload(
+            path: Self.generateObjectKey(from: fileName),
+            data: data,
+            options: options
         )
-
-        // 2. Upload to presigned URL or direct endpoint
-        try await uploadToStrategy(strategy: strategy, data: data, contentType: contentType)
-
-        // 3. Confirm upload if required
-        if strategy.confirmRequired {
-            let storedFile = try await confirmUpload(
-                path: strategy.key,
-                size: data.count,
-                contentType: contentType
-            )
-            logger.debug("File uploaded with auto-generated key via presigned URL")
-            return storedFile
-        }
-
-        // For direct uploads without confirmation, fetch the file info
-        let files = try await list(options: ListOptions(prefix: strategy.key, limit: 1))
-        guard let storedFile = files.first else {
-            throw InsForgeError.httpError(statusCode: 404, message: "Uploaded file not found", error: nil, nextActions: nil)
-        }
-        logger.debug("File uploaded with auto-generated key")
-        return storedFile
     }
 
     /// Internal method to upload data to the strategy endpoint

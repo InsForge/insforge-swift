@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Realtime auto-reconnect with bounded exponential backoff (max attempts + jitter), automatic channel re-subscription on reconnect, and `NWPathMonitor`-based network-aware retry behavior.
 - Configurable realtime reconnect policy and connection timeout via `InsForgeClientOptions.realtime`.
 
+### Changed
+- **Storage: standard PUT create-or-replace semantics** (sync with InsForge-sdk-js v1.5.0, requires an InsForge backend that includes InsForge/InsForge#1760):
+  - `upload(path:data:options:)` / `upload(path:fileURL:options:)` — uploading to a key that already exists now replaces the object in place. Previously the server silently auto-renamed the key (`photo.png` → `photo (1).png`). The method signatures are unchanged.
+  - `upload(data:fileName:options:)` — now generates a unique, collision-free key client-side (sanitized base + timestamp + random suffix) and uploads through the standard `upload(path:data:options:)` path, so repeated uploads of the same file never overwrite each other.
+
 ### Planned
 - Streaming support for AI chat completion
 - Batch operations for database
