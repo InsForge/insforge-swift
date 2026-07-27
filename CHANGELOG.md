@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Passwordless email OTP sign-in (parity with InsForge-sdk-js v1.5.1): `auth.signInWithOtp(email:)` requests a 6-digit sign-in code (enumeration-safe generic response), and `auth.verifyOtp(email:otp:name:)` verifies the code and creates a session.
+- Batch storage object deletion (parity with InsForge-sdk-js v1.5.1): `storage.from(bucket).delete(paths:)` deletes up to 1000 objects in a single request and returns a per-key `DeleteObjectsResponse`.
+- New public models: `SendOTPResponse`, `DeleteObjectsResponse`, `DeleteObjectResult`.
 - Realtime auto-reconnect with bounded exponential backoff (max attempts + jitter), automatic channel re-subscription on reconnect, and `NWPathMonitor`-based network-aware retry behavior.
 - Configurable realtime reconnect policy and connection timeout via `InsForgeClientOptions.realtime`.
 

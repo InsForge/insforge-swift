@@ -191,6 +191,121 @@ final class InsForgeAuthTests: XCTestCase {
         XCTAssertEqual(notifiedSession.user.email, "signin@example.com")
     }
 
+    func testSignInWithOtpPostsEmailToSendOtpEndpointAndReturnsGenericPayload() async throws {
+        let storage = InMemoryAuthStorage()
+
+        MockURLProtocol.enqueueStub { request in
+            request.url?.path == "/email/send-otp"
+        } response: { request in
+            let body = try AuthTestSupport.decodeJSONBody(request)
+            XCTAssertEqual(body["email"] as? String, "otp-user@example.com")
+            XCTAssertEqual(body.count, 1)
+
+            return try AuthTestSupport.makeHTTPResponse(
+                url: request.url!,
+                statusCode: 202,
+                json: [
+                    "success": true,
+                    "message": "If sign-in is available for this email, we have sent a verification code."
+                ]
+            )
+        }
+
+        let client = AuthTestSupport.makeClient(storage: storage)
+        let response = try await client.signInWithOtp(email: "otp-user@example.com")
+
+        XCTAssertTrue(response.success)
+        XCTAssertFalse(response.message.isEmpty)
+
+        // Requesting a code must not create or persist a session
+        let storedSession = try await storage.getSession()
+        XCTAssertNil(storedSession)
+    }
+
+    func testVerifyOtpCreatesSessionViaSessionsEndpointWithOtpMethod() async throws {
+        let storage = InMemoryAuthStorage()
+        let recorder = AuthStateRecorder()
+
+        MockURLProtocol.enqueueStub { request in
+            request.url?.path == "/sessions"
+        } response: { request in
+            let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(queryItems?.first(where: { $0.name == "client_type" })?.value, "mobile")
+
+            let body = try AuthTestSupport.decodeJSONBody(request)
+            XCTAssertEqual(body["method"] as? String, "otp")
+            XCTAssertEqual(body["email"] as? String, "otp-user@example.com")
+            XCTAssertEqual(body["otp"] as? String, "123456")
+            XCTAssertEqual(body["name"] as? String, "Ada Lovelace")
+
+            return try AuthTestSupport.makeHTTPResponse(
+                url: request.url!,
+                statusCode: 200,
+                json: AuthTestSupport.makeAuthResponseJSON(
+                    email: "otp-user@example.com",
+                    accessToken: "otp-access",
+                    refreshToken: "otp-refresh"
+                )
+            )
+        }
+
+        let client = AuthTestSupport.makeClient(storage: storage)
+        await client.setAuthStateChangeListener { session in
+            await recorder.record(session)
+        }
+
+        let response = try await client.verifyOtp(
+            email: "otp-user@example.com",
+            otp: "123456",
+            name: "Ada Lovelace"
+        )
+
+        XCTAssertEqual(response.accessToken, "otp-access")
+
+        // The session must be persisted — this is what distinguishes verifyOtp from signInWithOtp
+        let persistedSession = try await storage.getSession()
+        XCTAssertEqual(persistedSession?.accessToken, "otp-access")
+        XCTAssertEqual(persistedSession?.refreshToken, "otp-refresh")
+
+        let events = await recorder.snapshot()
+        XCTAssertEqual(events.count, 1)
+        let notifiedSession = try XCTUnwrap(events.first ?? nil)
+        XCTAssertEqual(notifiedSession.user.email, "otp-user@example.com")
+    }
+
+    func testVerifyOtpWithoutNameOmitsNameFromRequestPayload() async throws {
+        let storage = InMemoryAuthStorage()
+
+        MockURLProtocol.enqueueStub { request in
+            request.url?.path == "/sessions"
+        } response: { request in
+            let body = try AuthTestSupport.decodeJSONBody(request)
+            XCTAssertEqual(body["method"] as? String, "otp")
+            XCTAssertEqual(body["email"] as? String, "otp-user@example.com")
+            XCTAssertEqual(body["otp"] as? String, "654321")
+            XCTAssertNil(body["name"])
+
+            return try AuthTestSupport.makeHTTPResponse(
+                url: request.url!,
+                statusCode: 200,
+                json: AuthTestSupport.makeAuthResponseJSON(
+                    email: "otp-user@example.com",
+                    accessToken: "otp-access",
+                    refreshToken: nil
+                )
+            )
+        }
+
+        let client = AuthTestSupport.makeClient(storage: storage)
+        let response = try await client.verifyOtp(email: "otp-user@example.com", otp: "654321")
+
+        XCTAssertEqual(response.accessToken, "otp-access")
+
+        let persistedSession = try await storage.getSession()
+        XCTAssertEqual(persistedSession?.accessToken, "otp-access")
+        XCTAssertNil(persistedSession?.refreshToken)
+    }
+
     func testSignOutClearsSessionAndNotifiesListener() async throws {
         let storage = InMemoryAuthStorage()
         let recorder = AuthStateRecorder()
