@@ -511,6 +511,40 @@ final class InsForgeStorageTests: XCTestCase {
         }
     }
 
+    /// Test deleting multiple files in a single batch request
+    func testDeleteMultipleFiles() async throws {
+        print("🔵 Testing batch delete...")
+
+        // Ensure bucket exists
+        try? await insForgeClient.storage.deleteBucket(testBucketName)
+        try await insForgeClient.storage.createBucket(
+            testBucketName,
+            options: BucketOptions(isPublic: true)
+        )
+
+        let fileApi = await insForgeClient.storage.from(testBucketName)
+
+        // Upload two files
+        let firstPath = "test-batch-delete-a-\(UUID().uuidString).txt"
+        let secondPath = "test-batch-delete-b-\(UUID().uuidString).txt"
+        _ = try await fileApi.upload(path: firstPath, data: "First file".data(using: .utf8)!)
+        _ = try await fileApi.upload(path: secondPath, data: "Second file".data(using: .utf8)!)
+
+        // Delete both in a single request, plus a key that does not exist
+        let missingPath = "test-batch-delete-missing-\(UUID().uuidString).txt"
+        let response = try await fileApi.delete(paths: [firstPath, secondPath, missingPath])
+
+        XCTAssertEqual(response.results.count, 3)
+        XCTAssertEqual(response.results.first(where: { $0.key == firstPath })?.status, "deleted")
+        XCTAssertEqual(response.results.first(where: { $0.key == secondPath })?.status, "deleted")
+        XCTAssertEqual(response.results.first(where: { $0.key == missingPath })?.status, "notFound")
+
+        // Verify the files are gone
+        let remaining = try await fileApi.list()
+        XCTAssertTrue(remaining.isEmpty)
+        print("✅ Successfully batch deleted files")
+    }
+
     /// Test getting upload strategy
     func testGetUploadStrategy() async throws {
         print("🔵 Testing getUploadStrategy...")
@@ -727,5 +761,34 @@ final class InsForgeStorageTests: XCTestCase {
         print("   ✓ Deleted bucket")
 
         print("✅ Complete workflow successful!")
+    }
+}
+
+/// Model tests for storage batch delete responses.
+///
+/// Kept in a separate class from `InsForgeStorageTests` so they keep running in
+/// CI, where the live-backend test class is skipped (see scripts/test-unit.sh).
+final class InsForgeStorageBatchDeleteModelTests: XCTestCase {
+    func testDeleteObjectsResponseDecoding() throws {
+        let json = """
+        {
+            "results": [
+                { "key": "a.pdf", "status": "deleted" },
+                { "key": "missing.pdf", "status": "notFound" },
+                { "key": "locked.pdf", "status": "failed", "message": "Delete denied" }
+            ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(DeleteObjectsResponse.self, from: data)
+
+        XCTAssertEqual(response.results.count, 3)
+        XCTAssertEqual(response.results[0].key, "a.pdf")
+        XCTAssertEqual(response.results[0].status, "deleted")
+        XCTAssertNil(response.results[0].message)
+        XCTAssertEqual(response.results[1].status, "notFound")
+        XCTAssertEqual(response.results[2].status, "failed")
+        XCTAssertEqual(response.results[2].message, "Delete denied")
     }
 }

@@ -199,6 +199,28 @@ public struct SignUpResponse: Codable, Sendable {
     }
 }
 
+// MARK: - Send OTP Response
+
+/// Response from the email OTP sign-in request (`send-otp` endpoint).
+///
+/// The message is intentionally generic whether or not an account exists,
+/// to avoid account enumeration.
+public struct SendOTPResponse: Codable, Sendable {
+    /// Whether the request was accepted
+    public let success: Bool
+    /// Generic status message (does not reveal whether the account exists)
+    public let message: String
+
+    enum CodingKeys: String, CodingKey {
+        case success, message
+    }
+
+    public init(success: Bool, message: String) {
+        self.success = success
+        self.message = message
+    }
+}
+
 // MARK: - Reset Password Token Response
 
 /// Response from exchange-reset-password-token endpoint

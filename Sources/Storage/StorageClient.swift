@@ -119,6 +119,35 @@ public struct DownloadStrategy: Codable, Sendable {
     public let expiresAt: String?
 }
 
+/// Per-key result of a batch delete request
+public struct DeleteObjectResult: Codable, Sendable {
+    /// The object key this result refers to
+    public let key: String
+    /// Outcome for this key: "deleted", "notFound", or "failed"
+    public let status: String
+    /// Optional detail message (e.g. failure reason)
+    public let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case key, status, message
+    }
+
+    public init(key: String, status: String, message: String? = nil) {
+        self.key = key
+        self.status = status
+        self.message = message
+    }
+}
+
+/// Response from the batch delete endpoint, with one result per requested key
+public struct DeleteObjectsResponse: Codable, Sendable {
+    public let results: [DeleteObjectResult]
+
+    public init(results: [DeleteObjectResult]) {
+        self.results = results
+    }
+}
+
 // MARK: - Storage Client
 
 /// Storage client for managing buckets and files
@@ -677,6 +706,52 @@ public struct StorageFileApi: Sendable {
         }
 
         logger.debug("File '\(path)' deleted from bucket '\(bucketId)'")
+    }
+
+    /// Deletes multiple files from the bucket in a single request.
+    ///
+    /// Uses the batch endpoint, which accepts at most 1000 keys per request and
+    /// returns one result per key (`deleted`, `notFound`, or `failed`).
+    ///
+    /// - Parameter paths: The object keys to delete.
+    /// - Returns: DeleteObjectsResponse with one result per requested key.
+    @discardableResult
+    public func delete(paths: [String]) async throws -> DeleteObjectsResponse {
+        let endpoint = url
+            .appendingPathComponent("buckets")
+            .appendingPathComponent(bucketId)
+            .appendingPathComponent("objects")
+
+        let body: [String: Any] = ["keys": paths]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("DELETE \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        if let bodyString = String(data: data, encoding: .utf8) {
+            logger.trace("Request body: \(bodyString)")
+        }
+
+        let response = try await executeRequest(
+            .delete,
+            url: endpoint,
+            headers: requestHeaders,
+            body: data,
+            httpClient: httpClient,
+            tokenRefreshHandler: tokenRefreshHandler
+        )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8), !responseString.isEmpty {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let deleteResponse = try response.decode(DeleteObjectsResponse.self)
+        logger.debug("Batch deleted \(deleteResponse.results.count) object(s) from bucket '\(bucketId)'")
+        return deleteResponse
     }
 
     // MARK: - Public URL

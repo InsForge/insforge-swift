@@ -325,6 +325,127 @@ public actor AuthClient {
         return authResponse
     }
 
+    // MARK: - Email OTP Sign In
+
+    /// Send a one-time sign-in code to an email address.
+    ///
+    /// The response is intentionally generic whether or not an account exists,
+    /// to avoid account enumeration. Complete the flow with ``verifyOtp(email:otp:name:)``.
+    ///
+    /// - Parameter email: The email address to send the sign-in code to
+    /// - Returns: SendOTPResponse with a generic success message
+    @discardableResult
+    public func signInWithOtp(email: String) async throws -> SendOTPResponse {
+        let endpoint = url.appendingPathComponent("email/send-otp")
+
+        let body = ["email": email]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("Request body: email=\(email)")
+
+        let response = try await httpClient.execute(
+            .post,
+            url: endpoint,
+            headers: requestHeaders,
+            body: data
+        )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let otpResponse = try response.decode(SendOTPResponse.self)
+        logger.debug("Sign-in code requested for: \(email)")
+        return otpResponse
+    }
+
+    /// Verify an email sign-in code and create a session.
+    ///
+    /// If the email is new, a verified passwordless user is created; `name` sets
+    /// the display name only on that first-time creation.
+    ///
+    /// - Parameters:
+    ///   - email: The email address the code was sent to
+    ///   - otp: The 6-digit sign-in code received via email
+    ///   - name: Optional display name, used only when the user is created on first sign-in
+    /// - Returns: AuthResponse with user and tokens
+    public func verifyOtp(
+        email: String,
+        otp: String,
+        name: String? = nil
+    ) async throws -> AuthResponse {
+        var components = URLComponents(url: url.appendingPathComponent("sessions"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "client_type", value: clientType.rawValue)
+        ]
+
+        guard let endpoint = components.url else {
+            throw InsForgeError.invalidURL
+        }
+
+        var body: [String: String] = [
+            "method": "otp",
+            "email": email,
+            "otp": otp
+        ]
+        if let name = name {
+            body["name"] = name
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let requestHeaders = headers.merging(["Content-Type": "application/json"]) { $1 }
+
+        // Log request (don't log OTP)
+        logger.debug("POST \(endpoint.absoluteString)")
+        logger.trace("Request headers: \(requestHeaders.filter { $0.key != "Authorization" })")
+        logger.trace("Request body: email=\(email), name=\(name ?? "nil")")
+
+        let response = try await httpClient.execute(
+            .post,
+            url: endpoint,
+            headers: requestHeaders,
+            body: data
+        )
+
+        // Log response
+        let statusCode = response.response.statusCode
+        logger.debug("Response: \(statusCode)")
+        if let responseString = String(data: response.data, encoding: .utf8) {
+            logger.trace("Response body: \(responseString)")
+        }
+
+        let authResponse = try response.decode(AuthResponse.self)
+
+        // Save session if token is provided
+        if let accessToken = authResponse.accessToken {
+            // Store access token in memory
+            currentAccessToken = accessToken
+
+            // Persist session with both tokens
+            // - accessToken: always persisted (for legacy backend compatibility & app restart)
+            // - refreshToken: persisted if available (new backend with token refresh support)
+            let session = Session(
+                accessToken: accessToken,
+                refreshToken: authResponse.refreshToken,
+                user: authResponse.user
+            )
+            try await storage.saveSession(session)
+
+            // Notify listener about auth state change
+            await onAuthStateChange?(session)
+        }
+
+        logger.debug("OTP sign in successful for: \(email)")
+        return authResponse
+    }
+
     // MARK: - Sign Out
 
     /// Sign out current user

@@ -61,6 +61,13 @@ let session = try await client.auth.signIn(
     password: "securePassword123"
 )
 
+// Passwordless sign in with email OTP
+try await client.auth.signInWithOtp(email: "user@example.com")
+let otpSession = try await client.auth.verifyOtp(
+    email: "user@example.com",
+    otp: "123456"
+)
+
 // Get current user
 let user = try await client.auth.getCurrentUser()
 
@@ -156,6 +163,11 @@ let files = try await client.storage
 try await client.storage
     .from("avatars")
     .delete(path: file.key)
+
+// Delete multiple files in one request (max 1000 keys, one result per key)
+let deleteResults = try await client.storage
+    .from("avatars")
+    .delete(paths: ["users/old-1.jpg", "users/old-2.jpg"])
 
 // Get upload strategy (for S3 presigned URL upload)
 let uploadStrategy = try await client.storage
